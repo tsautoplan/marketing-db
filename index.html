@@ -98,6 +98,22 @@ td{padding:8px 12px;font-size:13px;border-bottom:1px solid rgba(230,229,224,.7);
   .drop.focus{border-color:var(--accent);background:rgba(31,79,216,.04)}
   .drop.busy{opacity:.55;pointer-events:none}
   .paste-tip{font-size:11px;color:var(--muted);margin-top:5px;text-align:center}
+  .fdrop{border:1.5px dashed var(--line);border-radius:8px;padding:22px 16px;text-align:center;
+    cursor:pointer;transition:border-color .15s,background .15s}
+  .fdrop:hover{border-color:var(--accent)}
+  .fdrop.over{border-color:var(--accent);background:rgba(31,79,216,.06)}
+  .fdrop .big{font-size:13px;font-weight:500}
+  .fdrop .sub{font-size:11px;color:var(--muted);margin-top:4px}
+  .qrow{display:flex;align-items:center;gap:10px;padding:9px 12px;border-bottom:1px solid var(--line)}
+  .qrow:last-child{border-bottom:0}
+  .qdot{width:8px;height:8px;border-radius:50%;flex-shrink:0;background:#D6D5CF}
+  .qdot.run{background:var(--accent);animation:pulse 1s infinite}
+  .qdot.ok{background:var(--gA)} .qdot.err{background:var(--gD)} .qdot.skip{background:var(--gC)}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+  .qname{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px}
+  .qstat{font-size:12px;color:var(--muted);white-space:nowrap}
+  .pbar{height:4px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
+  .pbar > div{height:100%;background:var(--accent);transition:width .25s}
   .ph{display:grid;place-items:center;border-radius:6px;background:#F4F4F0;color:var(--muted);font-size:12px}
   .tgl{display:inline-flex;align-items:center;cursor:pointer}
   .tgl input{position:absolute;opacity:0;width:0;height:0}
@@ -153,11 +169,11 @@ const S = {
   user: null, role: "marketer", page: "dashboard", days: 30,
   channels: [], media: [], models: [], camps: [], creas: [],
   leadTab: "목록", leadFilter: { q:"", ch:"", st:"" }, sel: new Set(),
-  up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null },
+  up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null, queue:null },
   perfTab: "채널", setTab: "채널·매체", cmpUnit: "일", autoRefresh: true,
   pasteTarget: null,
   costTab: "입력",
-  meta: { parsed:null, days:30, from:"", to:"" },
+  meta: { parsed:null, queue:null, days:30, from:"", to:"" },
   ads: { channel_id:2, view:"폴더", period:"이번달", from:"", to:"",
          rating:"", budget:"", onoff:"", sort:"desc", q:"" }
 };
@@ -627,16 +643,21 @@ function uploadView() {
   $("lbody").innerHTML = `
     <section class="card p16" style="margin-bottom:12px">
       <h2 class="h2" style="margin-bottom:12px">1. 채널 선택 후 파일 올리기</h2>
-      <div class="grid" style="grid-template-columns:1fr 1fr 1.4fr">
+      <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
         <label class="f"><span class="lbl">채널</span><select class="inp" id="u_ch"><option value="">선택</option>
           ${opt(S.channels.filter(c=>c.is_active),U.channel_id,"id","name")}</select></label>
         <label class="f"><span class="lbl">매체</span><select class="inp" id="u_md"><option value="">선택</option></select></label>
-        <label class="f"><span class="lbl">파일 (xlsx · xls · csv)</span>
-          <input class="inp" type="file" id="u_file" accept=".xlsx,.xls,.csv" style="padding:6px 8px"></label>
       </div>
+      <div class="fdrop" id="u_drop">
+        <div class="big">파일을 이 영역에 끌어다 놓으세요</div>
+        <div class="sub">또는 눌러서 선택 · xlsx · xls · csv · 여러 개 한번에 가능</div>
+      </div>
+      <input type="file" id="u_file" class="hide" accept=".xlsx,.xls,.csv" multiple>
       <span class="msg" id="u_msg"></span>
     </section>
+    <div id="u_queue"></div>
     <div id="u_step2"></div><div id="u_step3"></div>`;
+
   const fillMedia = () => {
     const ms = S.media.filter(m => String(m.channel_id) === $("u_ch").value && m.is_active);
     $("u_md").innerHTML = `<option value="">선택</option>` + opt(ms,U.media_id,"id","name");
@@ -644,14 +665,130 @@ function uploadView() {
   if (U.channel_id) fillMedia();
   $("u_ch").onchange = () => { U.channel_id = $("u_ch").value; U.media_id=""; fillMedia(); };
   $("u_md").onchange = () => { U.media_id = $("u_md").value; };
-  $("u_file").onchange = (e) => readFile(e.target.files[0]);
+
+  const dz = $("u_drop");
+  dz.onclick = () => $("u_file").click();
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
+  dz.ondragleave = () => dz.classList.remove("over");
+  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); takeFiles(Array.from(e.dataTransfer.files)); };
+  $("u_file").onchange = (e) => { takeFiles(Array.from(e.target.files)); e.target.value = ""; };
+
   if (U.rows.length) renderMap();
+}
+
+function takeFiles(files) {
+  const ok = files.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+  const m = $("u_msg");
+  if (!ok.length) { m.className="msg err"; m.textContent="엑셀이나 CSV 파일만 올릴 수 있습니다."; return; }
+  if (!$("u_ch").value) { m.className="msg err"; m.textContent="채널을 먼저 선택하세요."; return; }
+  m.textContent = "";
+  if (ok.length === 1) { S.up.queue = null; renderQueue(null); readFile(ok[0]); return; }
+  runQueue(ok);
+}
+
+function renderQueue(Q) {
+  const box = $("u_queue"); if (!box) return;
+  if (!Q) { box.innerHTML = ""; return; }
+  const done = Q.items.filter(x => x.state !== "wait" && x.state !== "run").length;
+  const totRow = Q.items.reduce((a,x)=>a+(x.saved||0),0);
+  const totDup = Q.items.reduce((a,x)=>a+(x.dup||0),0);
+  box.innerHTML = `<section class="card" style="margin-bottom:12px">
+    <div class="p16" style="padding-bottom:10px;display:flex;justify-content:space-between;align-items:baseline">
+      <h2 class="h2">일괄 처리 ${Q.running?"진행 중":"완료"}</h2>
+      <span class="sm muted">${done} / ${Q.items.length} 파일</span></div>
+    <div style="padding:0 16px 12px"><div class="pbar"><div style="width:${(done/Q.items.length*100).toFixed(0)}%"></div></div></div>
+    <div style="border-top:1px solid var(--line)">
+      ${Q.items.map(x=>`<div class="qrow">
+        <span class="qdot ${x.state==="run"?"run":x.state==="ok"?"ok":x.state==="err"?"err":x.state==="skip"?"skip":""}"></span>
+        <span class="qname">${esc(x.name)}</span>
+        <span class="qstat">${esc(x.msg ?? "대기 중")}</span></div>`).join("")}
+    </div>
+    ${!Q.running?`<div class="p16" style="border-top:1px solid var(--line);display:flex;gap:20px;flex-wrap:wrap">
+      <span class="sm"><b>${num(totRow)}</b>건 저장</span>
+      <span class="sm" style="color:var(--gC)">중복 <b>${num(totDup)}</b>건</span>
+      <button class="btn" id="q_close" style="height:28px;margin-left:auto">닫기</button></div>`:""}
+  </section>`;
+  if ($("q_close")) $("q_close").onclick = () => { S.up.queue = null; renderQueue(null); };
+}
+
+async function runQueue(files) {
+  const chId = +$("u_ch").value, mdId = $("u_md").value ? +$("u_md").value : null;
+  const Q = { running:true, items: files.map(f => ({ name:f.name, state:"wait", msg:null, saved:0, dup:0 })) };
+  S.up.queue = Q;
+  $("u_step2").innerHTML = ""; $("u_step3").innerHTML = "";
+  renderQueue(Q);
+
+  const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
+
+  for (let i = 0; i < files.length; i++) {
+    const it = Q.items[i];
+    it.state = "run"; it.msg = "읽는 중"; renderQueue(Q);
+    try {
+      const wb = XLSX.read(await files[i].arrayBuffer(), { type:"array", cellDates:true });
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+      if (aoa.length < 2) { it.state="skip"; it.msg="데이터 없음"; renderQueue(Q); continue; }
+      let hi = 0;
+      for (let r=0;r<Math.min(aoa.length,10);r++) if (aoa[r].filter(x=>String(x).trim()).length >= 2) { hi = r; break; }
+      const headers = aoa[hi].map(x => String(x).trim());
+      const rows = aoa.slice(hi+1).filter(r => r.some(x => String(x).trim() !== ""));
+      const map = guessMap(headers);
+      if (map.phone === "") { it.state="skip"; it.msg="연락처 열을 찾지 못했습니다"; renderQueue(Q); continue; }
+
+      it.msg = `${num(rows.length)}행 · 중복 검사 중`; renderQueue(Q);
+      const pi = +map.phone;
+      const parsed = rows.map(r => ({
+        phone: String(r[pi] ?? "").trim(), pn: digits(r[pi]),
+        name: map.name !== "" ? String(r[+map.name] ?? "").trim() : "",
+        region: map.region !== "" ? String(r[+map.region] ?? "").trim() : "",
+        memo: map.memo !== "" ? String(r[+map.memo] ?? "").trim() : "",
+        when: map.inflow_at !== "" ? parseWhen(r[+map.inflow_at]) : null
+      })).filter(x => x.pn.length >= 8);
+      if (!parsed.length) { it.state="skip"; it.msg="유효한 연락처 없음"; renderQueue(Q); continue; }
+
+      const uniq = Array.from(new Set(parsed.map(x=>x.pn)));
+      let dup = 0;
+      for (let k=0;k<uniq.length;k+=200) {
+        const { data } = await sb.from("leads").select("phone_norm").in("phone_norm", uniq.slice(k,k+200));
+        dup += new Set((data ?? []).map(d=>d.phone_norm)).size;
+      }
+      it.dup = dup;
+
+      it.msg = `${num(parsed.length)}건 저장 중`; renderQueue(Q);
+      const { data: batch } = await sb.from("import_batches").insert({
+        type:"lead", file_name:files[i].name, row_count:parsed.length,
+        uploaded_by:S.user?.id ?? null, channel_id:chId, media_id:mdId
+      }).select("id").single();
+
+      const payload = parsed.map(x => ({
+        inflow_at: (x.when ?? new Date()).toISOString(),
+        channel_id: chId, media_id: mdId,
+        name: x.name || null, phone: x.phone || null,
+        region: x.region || null, memo: x.memo || null,
+        source_type: "신규", import_batch_id: batch?.id ?? null
+      }));
+      let saved = 0, lastErr = "";
+      for (let k=0;k<payload.length;k+=200) {
+        const { error } = await sb.from("leads").insert(payload.slice(k,k+200));
+        if (error) lastErr = error.message; else saved += Math.min(200, payload.length-k);
+      }
+      it.saved = saved;
+      if (saved === 0) { it.state="err"; it.msg = lastErr || "저장 실패"; }
+      else { it.state="ok"; it.msg = `${num(saved)}건 저장${dup?` · 중복 ${num(dup)}`:""}${lastErr?" · 일부 실패":""}`; }
+    } catch (e) {
+      it.state="err"; it.msg = e.message;
+    }
+    renderQueue(Q);
+  }
+
+  Q.running = false;
+  renderQueue(Q);
+  await loadMasters();
 }
 
 async function readFile(file) {
   if (!file) return;
   const m = $("u_msg");
-  if (!$("u_ch").value) { m.className="msg err"; m.textContent="채널을 먼저 선택하세요."; $("u_file").value=""; return; }
+  if (!$("u_ch").value) { m.className="msg err"; m.textContent="채널을 먼저 선택하세요."; return; }
   m.className="msg"; m.textContent="파일을 읽는 중";
   try {
     const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
@@ -1546,19 +1683,171 @@ function toDate(v) {
 }
 
 async function metaUploadView() {
-  const M = S.meta;
   $("c_body").innerHTML = `
     <section class="card p16" style="margin-bottom:12px">
       <h2 class="h2" style="margin-bottom:4px">메타 광고 관리자 리포트 올리기</h2>
       <p class="sm muted" style="margin-bottom:12px;line-height:1.7">
         광고 관리자 → <b>광고</b> 탭 → 기간 지정 → 분류 <b>시간별 · 일별</b> → 표 데이터 내보내기(xlsx)로 받은 파일을 그대로 올리세요.
         일자별 · 소재별로 자동 정리되고 광고비에도 함께 반영됩니다.</p>
-      <input class="inp" type="file" id="mt_file" accept=".xlsx,.xls,.csv" style="padding:6px 8px;max-width:420px">
+      <div class="fdrop" id="mt_drop">
+        <div class="big">파일을 이 영역에 끌어다 놓으세요</div>
+        <div class="sub">또는 눌러서 선택 · xlsx · xls · csv · 여러 개 한번에 가능</div>
+      </div>
+      <input type="file" id="mt_file" class="hide" accept=".xlsx,.xls,.csv" multiple>
       <span class="msg" id="mt_msg"></span>
     </section>
+    <div id="mt_queue"></div>
     <div id="mt_prev"></div>`;
-  $("mt_file").onchange = (e) => readMeta(e.target.files[0]);
-  if (M.parsed) renderMetaPreview();
+
+  const dz = $("mt_drop");
+  dz.onclick = () => $("mt_file").click();
+  dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
+  dz.ondragleave = () => dz.classList.remove("over");
+  dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over"); takeMeta(Array.from(e.dataTransfer.files)); };
+  $("mt_file").onchange = (e) => { takeMeta(Array.from(e.target.files)); e.target.value = ""; };
+
+  if (S.meta.parsed) renderMetaPreview();
+}
+
+function takeMeta(files) {
+  const ok = files.filter(f => /\.(xlsx|xls|csv)$/i.test(f.name));
+  const m = $("mt_msg");
+  if (!ok.length) { m.className="msg err"; m.textContent="엑셀이나 CSV 파일만 올릴 수 있습니다."; return; }
+  m.textContent = "";
+  if (ok.length === 1) { S.meta.queue = null; renderMetaQueue(null); readMeta(ok[0]); return; }
+  runMetaQueue(ok);
+}
+
+function renderMetaQueue(Q) {
+  const box = $("mt_queue"); if (!box) return;
+  if (!Q) { box.innerHTML = ""; return; }
+  const done = Q.items.filter(x => x.state !== "wait" && x.state !== "run").length;
+  const spend = Q.items.reduce((a,x)=>a+(x.spend||0),0);
+  const rows  = Q.items.reduce((a,x)=>a+(x.rows||0),0);
+  const res   = Q.items.reduce((a,x)=>a+(x.res||0),0);
+  box.innerHTML = `<section class="card" style="margin-bottom:12px">
+    <div class="p16" style="padding-bottom:10px;display:flex;justify-content:space-between;align-items:baseline">
+      <h2 class="h2">일괄 처리 ${Q.running?"진행 중":"완료"}</h2>
+      <span class="sm muted">${done} / ${Q.items.length} 파일</span></div>
+    <div style="padding:0 16px 12px"><div class="pbar"><div style="width:${(done/Q.items.length*100).toFixed(0)}%"></div></div></div>
+    <div style="border-top:1px solid var(--line)">
+      ${Q.items.map(x=>`<div class="qrow">
+        <span class="qdot ${x.state==="run"?"run":x.state==="ok"?"ok":x.state==="err"?"err":x.state==="skip"?"skip":""}"></span>
+        <span class="qname">${esc(x.name)}</span>
+        <span class="qstat">${esc(x.msg ?? "대기 중")}</span></div>`).join("")}
+    </div>
+    ${!Q.running?`<div class="p16" style="border-top:1px solid var(--line);display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+      <span class="sm"><b>${num(rows)}</b>행 저장</span>
+      <span class="sm">지출 <b>${won(spend)}</b></span>
+      <span class="sm">결과 <b>${num(res)}</b>건</span>
+      <button class="btn" id="mq_go" style="height:28px;margin-left:auto">성과 보기</button>
+      <button class="btn" id="mq_close" style="height:28px">닫기</button></div>`:""}
+  </section>`;
+  if ($("mq_close")) $("mq_close").onclick = () => { S.meta.queue = null; renderMetaQueue(null); };
+  if ($("mq_go")) $("mq_go").onclick = () => { S.meta.queue = null; S.costTab = "소재별 성과"; vCosts(); };
+}
+
+async function runMetaQueue(files) {
+  const Q = { running:true, items: files.map(f => ({ name:f.name, state:"wait", msg:null, rows:0, spend:0, res:0 })) };
+  S.meta.queue = Q;
+  $("mt_prev").innerHTML = "";
+  renderMetaQueue(Q);
+
+  const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
+  const mediaByCode = new Map(S.media.map(x => [x.code, x]));
+
+  for (let i = 0; i < files.length; i++) {
+    const it = Q.items[i];
+    it.state = "run"; it.msg = "읽는 중"; renderMetaQueue(Q);
+    try {
+      const wb = XLSX.read(await files[i].arrayBuffer(), { type:"array", cellDates:true });
+      const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+      if (aoa.length < 2) { it.state="skip"; it.msg="데이터 없음"; renderMetaQueue(Q); continue; }
+      let hi = 0;
+      for (let r=0;r<Math.min(aoa.length,8);r++) if (aoa[r].filter(x=>String(x).trim()).length >= 4) { hi = r; break; }
+      const H = aoa[hi].map(x => String(x).trim());
+      const C = {}; Object.entries(META_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
+      if (C.date < 0 || C.ad < 0 || C.spend < 0) { it.state="skip"; it.msg="메타 리포트 형식 아님"; renderMetaQueue(Q); continue; }
+
+      const rows = [];
+      aoa.slice(hi+1).forEach(r => {
+        if (!r.some(x => String(x).trim() !== "")) return;
+        const d = toDate(r[C.date]);
+        const ad = String(r[C.ad] ?? "").trim();
+        if (!d || !ad) return;
+        const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
+        const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
+        const md = mediaByCode.get(placeToMedia(plat, place));
+        rows.push({
+          stat_date:d, ad_name:ad,
+          adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
+          platform: plat || null, placement: place || null,
+          device: C.device >= 0 ? String(r[C.device] ?? "").trim() || null : null,
+          channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
+          spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
+          reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
+          results: C.result >= 0 ? toNum(r[C.result]) : 0,
+          delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
+        });
+      });
+      if (!rows.length) { it.state="skip"; it.msg="인식된 행 없음"; renderMetaQueue(Q); continue; }
+
+      const dates = rows.map(r=>r.stat_date).sort();
+      it.spend = rows.reduce((a,r)=>a+r.spend,0);
+      it.res = rows.reduce((a,r)=>a+r.results,0);
+      it.msg = `${dates[0]}~${dates[dates.length-1]} · ${num(rows.length)}행 저장 중`; renderMetaQueue(Q);
+
+      const saved = await pushMeta(rows, files[i].name, true);
+      it.rows = saved.ok;
+      if (!saved.ok) { it.state="err"; it.msg = saved.err || "저장 실패"; }
+      else { it.state="ok";
+        it.msg = `${dates[0]}~${dates[dates.length-1]} · ${num(saved.ok)}행 · ${won(it.spend)} · 결과 ${num(it.res)}건`; }
+    } catch (e) { it.state="err"; it.msg = e.message; }
+    renderMetaQueue(Q);
+  }
+  Q.running = false;
+  renderMetaQueue(Q);
+}
+
+async function pushMeta(rows, fileName, sync) {
+  const { data: batch } = await sb.from("import_batches").insert({
+    type:"ad_cost", file_name:fileName, row_count:rows.length, uploaded_by:S.user?.id ?? null
+  }).select("id").single();
+
+  const merged = new Map();
+  rows.forEach(r => {
+    const k = [r.stat_date, r.ad_name, r.adset_name, r.platform, r.placement, r.device].join("\u0001");
+    const x = merged.get(k);
+    if (x) { x.spend += r.spend; x.impressions += r.impressions; x.reach += r.reach; x.results += r.results; }
+    else merged.set(k, { ...r });
+  });
+  const payload = Array.from(merged.values()).map(r => ({ ...r, import_batch_id: batch?.id ?? null }));
+
+  let ok = 0, err = "";
+  for (let i = 0; i < payload.length; i += 300) {
+    const n = Math.min(300, payload.length - i);
+    const { error } = await sb.from("meta_ad_daily").upsert(payload.slice(i, i+n), {
+      onConflict: "stat_date,ad_name,adset_name,platform,placement,device" });
+    if (error) err = error.message; else ok += n;
+  }
+
+  if (sync && ok) {
+    const agg = new Map();
+    rows.forEach(r => {
+      if (!r.media_id) return;
+      const k = `${r.stat_date}|${r.media_id}`;
+      const x = agg.get(k) ?? { cost_date:r.stat_date, channel_id:r.channel_id, media_id:r.media_id,
+        campaign_id:null, creative_id:null, cost:0, impressions:0, clicks:0 };
+      x.cost += r.spend; x.impressions += r.impressions;
+      agg.set(k, x);
+    });
+    const list = Array.from(agg.values()).map(x => ({ ...x, cost: Math.round(x.cost) }));
+    for (let i = 0; i < list.length; i += 200) {
+      await sb.from("ad_costs").upsert(list.slice(i, i+200), {
+        onConflict: "cost_date,channel_id,media_id,campaign_id,creative_id" });
+    }
+  }
+  return { ok, err };
 }
 
 async function readMeta(file) {
@@ -1690,50 +1979,13 @@ async function saveMeta() {
   $("mt_save").disabled = true;
   m.className = "msg"; m.textContent = "저장 중";
 
-  const { data: batch } = await sb.from("import_batches").insert({
-    type:"ad_cost", file_name:P.file, row_count:P.rows.length, uploaded_by:S.user?.id ?? null
-  }).select("id").single();
-
-  // 같은 키가 파일 안에 두 번 나오면 합산해 손실을 막습니다
-  const merged = new Map();
-  P.rows.forEach(r => {
-    const k = [r.stat_date, r.ad_name, r.adset_name, r.platform, r.placement, r.device].join("\u0001");
-    const x = merged.get(k);
-    if (x) { x.spend += r.spend; x.impressions += r.impressions; x.reach += r.reach; x.results += r.results; }
-    else merged.set(k, { ...r });
-  });
-  const payload = Array.from(merged.values()).map(r => ({ ...r, import_batch_id: batch?.id ?? null }));
-  let ok = 0, fail = 0, lastErr = "";
-  for (let i = 0; i < payload.length; i += 300) {
-    const { error } = await sb.from("meta_ad_daily").upsert(payload.slice(i, i+300), {
-      onConflict: "stat_date,ad_name,adset_name,platform,placement,device" });
-    const n = Math.min(300, payload.length-i);
-    if (error) { fail += n; lastErr = error.message; } else ok += n;
-  }
-  if (fail) {
+  const r = await pushMeta(P.rows, P.file, sync);
+  if (!r.ok) {
     $("mt_save").disabled = false;
-    m.className="msg err"; m.textContent = `${num(ok)}건 저장, ${num(fail)}건 실패: ${lastErr}`;
+    m.className="msg err"; m.textContent = "저장하지 못했습니다: " + (r.err || "알 수 없는 오류");
     return;
   }
-
-  if (sync) {
-    const agg = new Map();
-    P.rows.forEach(r => {
-      if (!r.media_id) return;
-      const k = `${r.stat_date}|${r.media_id}`;
-      const x = agg.get(k) ?? { cost_date:r.stat_date, channel_id:r.channel_id, media_id:r.media_id,
-        campaign_id:null, creative_id:null, cost:0, impressions:0, clicks:0 };
-      x.cost += r.spend; x.impressions += r.impressions;
-      agg.set(k, x);
-    });
-    const list = Array.from(agg.values()).map(x => ({ ...x, cost: Math.round(x.cost) }));
-    for (let i = 0; i < list.length; i += 200) {
-      await sb.from("ad_costs").upsert(list.slice(i, i+200), {
-        onConflict: "cost_date,channel_id,media_id,campaign_id,creative_id" });
-    }
-  }
-
-  m.className="msg"; m.textContent = `${num(ok)}건을 저장했습니다.`;
+  m.className="msg"; m.textContent = `${num(r.ok)}건을 저장했습니다.${r.err?" 일부 실패":""}`;
   S.meta.parsed = null;
   setTimeout(() => { S.costTab = "소재별 성과"; vCosts(); }, 900);
 }
