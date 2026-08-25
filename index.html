@@ -87,9 +87,17 @@ td{padding:8px 12px;font-size:13px;border-bottom:1px solid rgba(230,229,224,.7);
   .drop.over{border-color:var(--accent);background:rgba(31,79,216,.06)}
   .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
   .fcell{position:relative}
-  .fdel{position:absolute;top:3px;right:3px;width:20px;height:20px;border:0;border-radius:5px;
-    background:rgba(0,0,0,.62);color:#fff;font-size:13px;line-height:1;cursor:pointer;padding:0}
+  .fbtns{position:absolute;top:3px;right:3px;display:flex;gap:3px;opacity:0;transition:opacity .15s}
+  .fcell:hover .fbtns{opacity:1}
+  .fdel,.fdl{width:20px;height:20px;border:0;border-radius:5px;
+    background:rgba(0,0,0,.62);color:#fff;font-size:11px;line-height:1;cursor:pointer;padding:0;
+    display:grid;place-items:center}
+  .fdel{font-size:13px}
   .fdel:hover{background:var(--gD)}
+  .fdl:hover{background:var(--accent)}
+  .drop.focus{border-color:var(--accent);background:rgba(31,79,216,.04)}
+  .drop.busy{opacity:.55;pointer-events:none}
+  .paste-tip{font-size:11px;color:var(--muted);margin-top:5px;text-align:center}
   .ph{display:grid;place-items:center;border-radius:6px;background:#F4F4F0;color:var(--muted);font-size:12px}
   .tgl{display:inline-flex;align-items:center;cursor:pointer}
   .tgl input{position:absolute;opacity:0;width:0;height:0}
@@ -147,6 +155,7 @@ const S = {
   leadTab: "목록", leadFilter: { q:"", ch:"", st:"" }, sel: new Set(),
   up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null },
   perfTab: "채널", setTab: "채널·매체", cmpUnit: "일", autoRefresh: true,
+  pasteTarget: null,
   ads: { channel_id:2, view:"폴더", period:"이번달", from:"", to:"",
          rating:"", budget:"", onoff:"", sort:"desc", q:"" }
 };
@@ -254,16 +263,31 @@ function toCsv(rows) {
 }
 
 /* ---------- shell ---------- */
-const NAV = [
+const NAV_DEFAULT = [
   ["dashboard","대시보드"],["leads","DB 원장"],["costs","광고비"],["ads","META 광고소재"],["contracts","계약"],
   ["performance","성과분석"],["pnl","손익"],["data","자료관리"],["settings","설정"]
 ];
+const NAV_KEY = "mdb_nav_order";
+function navList() {
+  let order = [];
+  try { order = JSON.parse(localStorage.getItem(NAV_KEY) || "[]"); } catch(_) {}
+  const map = new Map(NAV_DEFAULT);
+  const out = [];
+  order.forEach(k => { if (map.has(k)) { out.push([k, map.get(k)]); map.delete(k); } });
+  NAV_DEFAULT.forEach(([k,v]) => { if (map.has(k)) out.push([k,v]); });
+  return out;
+}
+function saveNav(list) {
+  try { localStorage.setItem(NAV_KEY, JSON.stringify(list.map(x=>x[0]))); } catch(_) {}
+}
 
 function shell() {
   $("app").innerHTML = `<div class="wrap">
     <aside class="side">
       <div class="brand"><div class="k">MARKETING DB</div><div class="n">유입 성과 관리</div></div>
-      <nav class="nav" id="nav">${NAV.map(([k,v])=>`<button data-p="${k}"${S.page===k?' class="on"':""}>${v}</button>`).join("")}</nav>
+      <nav class="nav" id="nav">${navList().map(([k,v])=>
+        `<button data-p="${k}" draggable="true"${S.page===k?' class="on"':""}>${v}<span class="grip">⠿</span></button>`).join("")}
+        <button class="nav-reset" id="navrs">메뉴 순서 초기화</button></nav>
       <div class="foot">
         <button class="btn" style="width:100%;margin-bottom:6px" id="rf">전체 새로고침</button>
         <label class="sm muted" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;cursor:pointer">
@@ -272,7 +296,13 @@ function shell() {
         <button class="btn" style="width:100%" id="out">로그아웃</button></div>
     </aside>
     <main id="main"></main></div>`;
-  $("nav").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.page = b.dataset.p; S.sel.clear(); shell(); route(); };
+  $("nav").onclick = (e) => {
+    const b = e.target.closest("button[data-p]"); if (!b) return;
+    if (b.dataset.moved === "1") { b.dataset.moved = ""; return; }
+    S.page = b.dataset.p; S.sel.clear(); shell(); route();
+  };
+  $("navrs").onclick = () => { try { localStorage.removeItem(NAV_KEY); } catch(_) {} shell(); route(); };
+  bindNavDrag();
   $("out").onclick = async () => {
     try { if (!confirm("로그아웃합니다. 저장한 로그인 정보도 지울까요?\n\n확인: 정보까지 삭제\n취소: 정보는 유지"))
       { await sb.auth.signOut(); return; } localStorage.removeItem("mdb_login"); } catch(_) {}
@@ -281,6 +311,45 @@ function shell() {
   $("rf").onclick = () => hardRefresh();
   $("ar").onchange = (e) => { S.autoRefresh = e.target.checked; setTimer(); };
   setTimer();
+}
+
+function bindNavDrag() {
+  const nav = $("nav"); if (!nav) return;
+  let src = null;
+
+  nav.querySelectorAll("button[data-p]").forEach(b => {
+    b.ondragstart = (e) => {
+      src = b; b.classList.add("drag");
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", b.dataset.p); } catch(_) {}
+    };
+    b.ondragend = () => {
+      src = null;
+      nav.querySelectorAll("button").forEach(x => x.classList.remove("drag","over-t","over-b"));
+    };
+    b.ondragover = (e) => {
+      if (!src || src === b) return;
+      e.preventDefault();
+      const r = b.getBoundingClientRect();
+      const up = e.clientY < r.top + r.height/2;
+      b.classList.toggle("over-t", up);
+      b.classList.toggle("over-b", !up);
+    };
+    b.ondragleave = () => b.classList.remove("over-t","over-b");
+    b.ondrop = (e) => {
+      e.preventDefault();
+      if (!src || src === b) return;
+      const r = b.getBoundingClientRect();
+      const up = e.clientY < r.top + r.height/2;
+      b.parentNode.insertBefore(src, up ? b : b.nextSibling);
+      src.dataset.moved = "1";
+      b.classList.remove("over-t","over-b");
+      const map = new Map(NAV_DEFAULT);
+      const list = Array.from(nav.querySelectorAll("button[data-p]"))
+        .map(x => [x.dataset.p, map.get(x.dataset.p)]);
+      saveNav(list);
+    };
+  });
 }
 
 let timer = null;
@@ -1084,8 +1153,10 @@ function folderView(rows) {
         <div class="drop" data-drop="${x.id}">
           ${files.length ? `<div class="fgrid">${files.map((f,i)=>`<div class="fcell">
               ${thumb(f, files.length===1)}
-              <button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div>`).join("")}</div>`
-            : `<div class="ph" style="height:150px">이미지·영상을 끌어다 놓으세요</div>`}
+              <div class="fbtns">
+                <button class="fdl" data-fdl="${x.id}" data-fi="${i}" title="내려받기">↓</button>
+                <button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div></div>`).join("")}</div>`
+            : `<div class="ph" style="height:150px">이미지·영상을 끌어다 놓거나<br>여기를 누르고 Ctrl+V</div>`}
           <input type="file" class="hide" data-file="${x.id}" multiple accept="image/*,video/*">
         </div>
         <div style="margin-top:10px">
@@ -1114,8 +1185,10 @@ function listView(rows) {
         <div>
           <div class="drop" data-drop="${x.id}">
             ${files.length ? `<div class="fgrid">${files.map((f,i)=>`<div class="fcell">
-                ${thumb(f, false)}<button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div>`).join("")}</div>`
-              : `<div class="ph" style="height:88px">파일을 끌어다 놓으세요</div>`}
+                ${thumb(f, false)}<div class="fbtns">
+                  <button class="fdl" data-fdl="${x.id}" data-fi="${i}" title="내려받기">↓</button>
+                  <button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div></div>`).join("")}</div>`
+              : `<div class="ph" style="height:88px">끌어다 놓거나 Ctrl+V</div>`}
             <input type="file" class="hide" data-file="${x.id}" multiple accept="image/*,video/*">
           </div>
         </div>
@@ -1158,12 +1231,49 @@ function bindAdRows() {
   B.querySelectorAll("[data-drop]").forEach(dz => {
     const id = dz.dataset.drop;
     const input = dz.querySelector(`input[data-file="${id}"]`);
-    dz.onclick = (e) => { if (!e.target.closest(".fdel")) input.click(); };
-    input.onchange = () => uploadFiles(id, Array.from(input.files));
+
+    dz.tabIndex = 0;
+    dz.onclick = (e) => {
+      if (e.target.closest(".fbtns")) return;
+      S.pasteTarget = id;
+      B.querySelectorAll("[data-drop]").forEach(o => o.classList.toggle("focus", o === dz));
+      dz.focus();
+    };
+    dz.ondblclick = (e) => { if (!e.target.closest(".fbtns")) input.click(); };
+    dz.onfocus = () => { S.pasteTarget = id; dz.classList.add("focus"); };
+    dz.onblur  = () => setTimeout(() => dz.classList.remove("focus"), 150);
+
+    input.onchange = () => { uploadFiles(id, Array.from(input.files)); input.value = ""; };
     dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
     dz.ondragleave = () => dz.classList.remove("over");
     dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over");
       uploadFiles(id, Array.from(e.dataTransfer.files)); };
+
+    dz.onpaste = (e) => {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const files = items.filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+      if (files.length) { e.preventDefault(); uploadFiles(id, files); }
+    };
+  });
+
+  B.querySelectorAll("button[data-fdl]").forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    const { data } = await sb.from("ad_creatives").select("files,title").eq("id", b.dataset.fdl).single();
+    const f = (data?.files ?? [])[+b.dataset.fi];
+    if (!f) return;
+    b.textContent = "…"; b.disabled = true;
+    try {
+      const res = await fetch(fileUrl(f.path));
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = f.name || `소재-${Date.now()}`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch (err) {
+      window.open(fileUrl(f.path), "_blank");
+    }
+    b.textContent = "↓"; b.disabled = false;
   });
 
   B.querySelectorAll("button[data-fdel]").forEach(b => b.onclick = async (e) => {
@@ -1189,28 +1299,79 @@ function bindAdRows() {
   });
 }
 
+if (!window._pasteBound) {
+  window._pasteBound = true;
+  document.addEventListener("paste", (e) => {
+    if (S.page !== "ads" || !S.pasteTarget) return;
+    if (/^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName ?? "")) return;
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(i => i.kind === "file").map(i => i.getAsFile()).filter(Boolean);
+    if (!files.length) return;
+    e.preventDefault();
+    uploadFiles(S.pasteTarget, files);
+  });
+}
+
 async function uploadFiles(id, files) {
   const ok = files.filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
-  if (!ok.length) return;
-  const { data: cur } = await sb.from("ad_creatives").select("files").eq("id", id).single();
-  const list = (cur?.files ?? []).slice();
-  const card = $("a_body").querySelector(`[data-card="${id}"]`);
-  if (card) card.style.opacity = ".5";
+  if (!ok.length) { toast("이미지나 영상 파일만 넣을 수 있습니다."); return; }
 
+  const dz = $("a_body")?.querySelector(`[data-drop="${id}"]`);
+  if (dz) dz.classList.add("busy");
+  toast(`${ok.length}개 올리는 중…`, true);
+
+  const { data: cur, error: e0 } = await sb.from("ad_creatives").select("files").eq("id", id).single();
+  if (e0) { toast("불러오지 못했습니다: " + e0.message); if (dz) dz.classList.remove("busy"); return; }
+  const list = (cur?.files ?? []).slice();
+
+  let done = 0, fail = 0;
   for (const f of ok) {
-    if (f.size > 50*1024*1024) { alert(`${f.name} 은 50MB를 넘어 올릴 수 없습니다.`); continue; }
+    if (f.size > 50*1024*1024) { toast(`${f.name||"파일"} 은 50MB를 넘어 올릴 수 없습니다.`); fail++; continue; }
+    const mime = f.type || "application/octet-stream";
+    let ext = (f.name?.split(".").pop() || "").toLowerCase();
+    if (!ext || ext.length > 5) ext = (mime.split("/")[1] || "bin").split(";")[0];
+    const nice = f.name && f.name !== "image.png"
+      ? f.name
+      : `${mime.startsWith("video")?"영상":"이미지"}-${new Date().toISOString().slice(0,19).replace(/[:T]/g,"")}.${ext}`;
+
     if (DEMO) {
-      list.push({ path: URL.createObjectURL(f), name: f.name, type: f.type, size: f.size });
-    } else {
-      const ext = (f.name.split(".").pop() || "bin").toLowerCase();
-      const path = `${S.ads.channel_id}/${id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
-      const { error } = await sb.storage.from(BUCKET).upload(path, f, { contentType: f.type, upsert: false });
-      if (error) { alert(`${f.name} 업로드 실패: ${error.message}`); continue; }
-      list.push({ path, name: f.name, type: f.type, size: f.size });
+      list.push({ path: URL.createObjectURL(f), name: nice, type: mime, size: f.size });
+      done++; continue;
     }
+    const path = `${S.ads.channel_id}/${id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+    const { error } = await sb.storage.from(BUCKET).upload(path, f, { contentType: mime, upsert: false });
+    if (error) { toast(`${nice} 올리지 못했습니다: ${error.message}`); fail++; continue; }
+    list.push({ path, name: nice, type: mime, size: f.size });
+    done++;
   }
-  await sb.from("ad_creatives").update({ files: list }).eq("id", id);
-  loadAds();
+
+  if (done) {
+    const { error } = await sb.from("ad_creatives").update({ files: list }).eq("id", id);
+    if (error) { toast("저장하지 못했습니다: " + error.message); if (dz) dz.classList.remove("busy"); return; }
+    toast(`${done}개 저장했습니다.${fail?` (${fail}개 실패)`:""}`);
+    await loadAds();
+    const back = $("a_body")?.querySelector(`[data-drop="${id}"]`);
+    if (back) { back.classList.add("focus"); S.pasteTarget = id; }
+  } else {
+    if (dz) dz.classList.remove("busy");
+  }
+}
+
+let _toastT = null;
+function toast(msg, hold) {
+  let el = $("toast");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "toast";
+    el.style.cssText = "position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#16181D;"
+      + "color:#fff;padding:11px 18px;border-radius:8px;font-size:13px;z-index:60;box-shadow:0 4px 16px rgba(0,0,0,.2);"
+      + "max-width:80vw;text-align:center";
+    document.body.appendChild(el);
+  }
+  el.textContent = msg;
+  el.style.display = "block";
+  clearTimeout(_toastT);
+  if (!hold) _toastT = setTimeout(() => { el.style.display = "none"; }, 2600);
 }
 
 function openAdForm(row) {
