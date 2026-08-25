@@ -174,7 +174,7 @@ const S = {
   perfTab: "채널", setTab: "채널·매체", cmpUnit: "일", autoRefresh: true,
   pasteTarget: null,
   costTab: "입력",
-  meta: { parsed:null, queue:null, days:30, from:"", to:"" },
+  meta: { parsed:null, queue:null, mode:"30", days:30, from:"", to:"", sort:null },
   ads: { channel_id:2, view:"폴더", period:"이번달", from:"", to:"",
          rating:"", budget:"", onoff:"", sort:"desc", q:"" }
 };
@@ -215,16 +215,43 @@ const weekStart = (s) => { const d = new Date(s); d.setDate(d.getDate() - d.getD
 /* ---------- charts ---------- */
 function svgLine(data, key, color) {
   if (!data.length) return `<div class="empty">표시할 추이가 없습니다.</div>`;
-  const W = 640, H = 200, P = 8;
-  const max = Math.max(1, ...data.map(d => d[key]));
-  const step = data.length > 1 ? (W - P*2) / (data.length - 1) : 0;
-  const pts = data.map((d,i) => `${(P+i*step).toFixed(1)},${(H-P-(d[key]/max)*(H-P*2)).toFixed(1)}`).join(" ");
-  const grid = [0.25,0.5,0.75,1].map(r => `<line x1="0" y1="${(H-P-r*(H-P*2)).toFixed(1)}" x2="${W}" y2="${(H-P-r*(H-P*2)).toFixed(1)}" stroke="#E6E5E0" stroke-width="1"/>`).join("");
-  const dots = data.map((d,i) => `<circle cx="${(P+i*step).toFixed(1)}" cy="${(H-P-(d[key]/max)*(H-P*2)).toFixed(1)}" r="8" fill="transparent"><title>${esc(d.k ?? d.d)} · ${num(d[key])}</title></circle>`).join("");
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px" role="img" aria-label="추이">
-    ${grid}<polyline points="${pts}" fill="none" stroke="${color || "var(--accent)"}" stroke-width="2"/>${dots}</svg>
+  const W = 640, H = 210, PL = 52, PR = 12, PT = 20, PB = 10;
+  const vals = data.map(d => Number(d[key]) || 0);
+  const max = Math.max(1, ...vals);
+  const minV = Math.min(...vals);
+  const step = data.length > 1 ? (W - PL - PR) / (data.length - 1) : 0;
+  const X = (i) => PL + i * step;
+  const Y = (v) => H - PB - (v / max) * (H - PT - PB);
+  const fmt = (v) => v >= 10000 ? (v/10000).toFixed(v >= 100000 ? 0 : 1) + "만" : num(v);
+
+  const pts = data.map((d,i) => `${X(i).toFixed(1)},${Y(vals[i]).toFixed(1)}`).join(" ");
+  const grid = [0.25,0.5,0.75,1].map(r => {
+    const y = Y(max*r).toFixed(1);
+    return `<line x1="${PL}" y1="${y}" x2="${W-PR}" y2="${y}" stroke="#E6E5E0" stroke-width="1"/>
+      <text x="${PL-6}" y="${(+y+3.5).toFixed(1)}" text-anchor="end" font-size="10" fill="#8B8A85">${fmt(max*r)}</text>`;
+  }).join("");
+
+  const iMax = vals.indexOf(Math.max(...vals));
+  const iMin = vals.indexOf(minV);
+  const c = color || "var(--accent)";
+  const mark = (i, v, above, col) => {
+    const x = X(i), y = Y(v);
+    const tx = Math.min(Math.max(x, PL + 16), W - PR - 16);
+    const ty = above ? Math.max(y - 7, 10) : Math.min(y + 14, H - 2);
+    return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3.5" fill="${col}"/>
+      <text x="${tx.toFixed(1)}" y="${ty.toFixed(1)}" text-anchor="middle" font-size="10.5" font-weight="600" fill="${col}">${num(v)}</text>`;
+  };
+  let marks = mark(iMax, vals[iMax], true, c);
+  if (iMin !== iMax && data.length > 1) marks += mark(iMin, minV, false, "#8B8A85");
+
+  const dots = data.map((d,i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(vals[i]).toFixed(1)}" r="9" fill="transparent"><title>${esc(d.k ?? d.d)} · ${num(vals[i])}</title></circle>`).join("");
+
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:210px" role="img" aria-label="추이">
+    ${grid}<polyline points="${pts}" fill="none" stroke="${c}" stroke-width="2"/>${marks}${dots}</svg>
     <div class="sm muted" style="display:flex;justify-content:space-between;margin-top:6px">
-      <span>${esc(data[0].k ?? data[0].d)}</span><span>최고 ${num(max)}</span><span>${esc(data[data.length-1].k ?? data[data.length-1].d)}</span></div>`;
+      <span>${esc(data[0].k ?? data[0].d)}</span>
+      <span>최고 ${num(Math.max(...vals))} · 최저 ${num(minV)}</span>
+      <span>${esc(data[data.length-1].k ?? data[data.length-1].d)}</span></div>`;
 }
 
 function svgDual(cur, prev, key, labels) {
@@ -457,12 +484,12 @@ const mdName = (id) => S.media.find(m => m.id === id)?.name ?? "";
 async function vDashboard() {
   const D = S.dash;
   if (!D.from) { D.from = daysAgo(30); D.to = ymd(new Date()); }
-  const MODES = [["7","7일"],["30","30일"],["90","90일"],["이번달","이번달"],["저번달","저번달"],["직접","직접"]];
+  const MODES = [["7","7일"],["14","14일"],["21","21일"],["28","28일"],["30","30일"],["60","60일"],["90","90일"]];
 
   $("main").innerHTML = `<div class="head"><div><h1 class="h1">대시보드</h1>
     <p class="sm muted" style="margin-top:4px">${esc(D.from)} ~ ${esc(D.to)}</p></div>
     <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-      <div class="seg" id="rng">${MODES.map(([v,l])=>`<button data-n="${v}"${D.mode===v?' class="on"':""}>${l}</button>`).join("")}</div>
+      <div class="seg" id="rng">${MODES.map(([v,l])=>`<button data-n="${v}"${D.mode===v?' class="on"':""}>${l}</button>`).join("")}<span class="vdiv"></span><button data-n="이번달"${D.mode==="이번달"?' class="on"':""}>이번달</button><button data-n="저번달"${D.mode==="저번달"?' class="on"':""}>지난달</button><span class="vdiv"></span><button data-n="직접"${D.mode==="직접"?' class="on"':""}>직접</button></div>
       <input class="inp" type="date" id="d_from" value="${D.from}" style="width:140px"${D.mode!=="직접"?" disabled":""}>
       <input class="inp" type="date" id="d_to" value="${D.to}" style="width:140px"${D.mode!=="직접"?" disabled":""}>
     </div></div>
@@ -1762,7 +1789,7 @@ function openAdForm(row) {
    메타 리포트
    ============================================================ */
 const META_COLS = {
-  date:   ["보고 시작","보고시작","시작","reporting starts","day","date","날짜"],
+  date:   ["보고 시작","보고시작","시작","reporting starts","day","date","날짜","일"],
   end:    ["보고 종료","보고종료","reporting ends"],
   ad:     ["광고 이름","광고이름","ad name"],
   adset:  ["광고 세트 이름","광고세트 이름","ad set name"],
@@ -1773,6 +1800,7 @@ const META_COLS = {
   imp:    ["노출","impressions"],
   reach:  ["도달","reach"],
   result: ["결과","results"],
+  lead:   ["잠재 고객(양식)","잠재 고객","잠재고객","리드","leads","on-facebook leads"],
   deliv:  ["광고 게재","게재","delivery"],
   budget: ["광고 세트 예산","광고세트 예산","ad set budget"],
   btype:  ["광고 세트 예산 유형","budget type"]
@@ -1815,7 +1843,7 @@ function parseMetaAoa(aoa) {
     if (!d || !ad) { bad++; return; }
     const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
     const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
-    const md = mediaByCode.get(placeToMedia(plat, place));
+    const md = (plat || place) ? mediaByCode.get(placeToMedia(plat, place)) : null;
     rows.push({
       stat_date: d, ad_name: ad,
       adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
@@ -1824,7 +1852,8 @@ function parseMetaAoa(aoa) {
       channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
       spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
       reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
-      results: C.result >= 0 ? toNum(r[C.result]) : 0,
+      results: C.lead >= 0 && String(r[C.lead]).trim() !== "" ? toNum(r[C.lead])
+             : C.result >= 0 ? toNum(r[C.result]) : 0,
       adset_budget: C.budget >= 0 ? (toNum(r[C.budget]) || null) : null,
       budget_type: C.btype >= 0 ? String(r[C.btype] ?? "").trim() || null : null,
       delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
@@ -1881,7 +1910,19 @@ async function metaUploadView() {
       <span class="msg" id="mt_msg"></span>
     </section>
     <div id="mt_queue"></div>
-    <div id="mt_prev"></div>`;
+    <div id="mt_prev"></div>
+    <section class="card p16" style="margin-top:12px">
+      <h2 class="h2" style="margin-bottom:4px">올린 실적 기간 삭제</h2>
+      <p class="sm muted" style="margin-bottom:12px">잘못 올렸거나 다시 올리고 싶은 기간의 메타 실적을 지웁니다.</p>
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <label class="f" style="width:150px"><span class="lbl">시작일</span>
+          <input class="inp" type="date" id="md_from" value="${daysAgo(7)}"></label>
+        <label class="f" style="width:150px"><span class="lbl">종료일</span>
+          <input class="inp" type="date" id="md_to" value="${ymd(new Date())}"></label>
+        <button class="btn" id="md_check">확인</button>
+      </div>
+      <div id="md_prev" style="margin-top:12px"></div>
+    </section>`;
 
   const dz = $("mt_drop");
   dz.onclick = () => $("mt_file").click();
@@ -1891,6 +1932,48 @@ async function metaUploadView() {
   $("mt_file").onchange = (e) => { takeMeta(Array.from(e.target.files)); e.target.value = ""; };
 
   if (S.meta.parsed) renderMetaPreview();
+
+  $("md_check").onclick = async () => {
+    const from = $("md_from").value, to = $("md_to").value;
+    const pv = $("md_prev");
+    if (!from || !to || from > to) { pv.innerHTML = `<span class="msg err">기간을 올바르게 지정하세요.</span>`; return; }
+    pv.innerHTML = `<span class="muted sm">확인 중</span>`;
+    const { data, error } = await sb.from("meta_ad_daily")
+      .select("id,spend,results,media_id,ad_name").gte("stat_date", from).lte("stat_date", to).limit(10000);
+    if (error) { pv.innerHTML = `<span class="msg err">${esc(error.message)}</span>`; return; }
+    const rows = data ?? [];
+    if (!rows.length) { pv.innerHTML = `<span class="muted sm">해당 기간에 저장된 실적이 없습니다.</span>`; return; }
+    const spend = rows.reduce((a,r)=>a+Number(r.spend),0);
+    const res = rows.reduce((a,r)=>a+Number(r.results),0);
+    const ads = new Set(rows.map(r=>r.ad_name)).size;
+    const mediaIds = Array.from(new Set(rows.map(r=>r.media_id).filter(Boolean)));
+    pv.innerHTML = `
+      <div style="border:1px solid var(--gD);border-radius:6px;padding:14px;background:rgba(176,58,58,.04)">
+        <div style="font-weight:500;margin-bottom:8px">${esc(from)} ~ ${esc(to)} 삭제 대상</div>
+        <div class="sm" style="line-height:1.8">
+          실적 <b>${num(rows.length)}행</b>${rows.length>=10000?" 이상":""} · 소재 ${num(ads)}개 ·
+          지출 <b>${won(spend)}</b> · 결과 ${num(res)}건</div>
+        <label class="sm" style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;cursor:pointer">
+          <input type="checkbox" id="md_sync" checked> 광고비 메뉴에 반영된 같은 기간 메타 광고비도 함께 삭제</label>
+        <div style="display:flex;gap:8px;align-items:center;margin-top:12px">
+          <button class="btn-solid" id="md_del" style="background:var(--gD)">삭제 실행</button>
+          <span class="msg" id="md_msg"></span></div>
+      </div>`;
+    $("md_del").onclick = async () => {
+      if (!confirm(`${from} ~ ${to} 기간의 메타 실적 ${num(rows.length)}행을 삭제합니다.\n되돌릴 수 없습니다. 진행할까요?`)) return;
+      $("md_del").disabled = true;
+      const mm = $("md_msg"); mm.className="msg"; mm.textContent="삭제 중";
+      const { error: e1 } = await sb.from("meta_ad_daily").delete().gte("stat_date", from).lte("stat_date", to);
+      if (e1) { mm.className="msg err"; mm.textContent="삭제하지 못했습니다: "+e1.message; $("md_del").disabled=false; return; }
+      if ($("md_sync").checked && mediaIds.length) {
+        for (let i=0;i<mediaIds.length;i+=50)
+          await sb.from("ad_costs").delete().gte("cost_date", from).lte("cost_date", to)
+            .in("media_id", mediaIds.slice(i,i+50));
+      }
+      pv.innerHTML = `<span class="msg">${num(rows.length)}행을 삭제했습니다.</span>`;
+      toast("삭제 완료");
+    };
+  };
 }
 
 function takeMeta(files) {
@@ -2093,17 +2176,25 @@ async function saveMeta() {
 }
 
 /* ---- 소재별 성과 ---- */
+const MP_COLS = [
+  ["ad","광고 소재"],["card","연결 카드"],["days","일수"],["budget","일일예산"],["spend","지출"],
+  ["burn","소진율"],["imp","노출"],["res","결과"],["cpl","건당 비용"],["cpm","CPM"],["share","비중"]
+];
+
 async function metaPerfView() {
   const M = S.meta;
+  if (!M.sort) M.sort = { col:"spend", dir:"desc" };
   const [dl, cr, ac] = await Promise.all([
     sb.from("v_meta_daily").select("*").gte("d", M.from).lte("d", M.to).order("d"),
     sb.from("v_meta_creative").select("*"),
     sb.from("ad_creatives").select("id,title,meta_ad_name,rating,is_on")
   ]);
-  const daily = dl.data ?? [], creas = cr.data ?? [], cards = ac.data ?? [];
+  const daily = dl.error ? [] : (dl.data ?? []);
+  const cards = ac.error ? [] : (ac.data ?? []);
 
-  if (!daily.length && !creas.length) {
-    $("c_body").innerHTML = `<div class="card empty">저장된 메타 실적이 없습니다. 리포트 업로드 탭에서 파일을 올려주세요.</div>`;
+  if (!daily.length) {
+    $("c_body").innerHTML = `<div class="card empty">해당 기간의 메타 실적이 없습니다. 리포트 업로드 탭에서 파일을 올리거나 기간을 넓혀보세요.</div>`;
+    renderMpFilter();
     return;
   }
 
@@ -2114,8 +2205,28 @@ async function metaPerfView() {
     if (r.adset_budget) x.budget = Math.max(x.budget ?? 0, Number(r.adset_budget));
     inRange.set(r.ad_name, x);
   });
-  const list = Array.from(inRange.values()).sort((a,b)=>b.spend-a.spend);
-  const T = list.reduce((a,x)=>({spend:a.spend+x.spend, imp:a.imp+x.imp, res:a.res+x.res}),{spend:0,imp:0,res:0});
+  const T = Array.from(inRange.values()).reduce((a,x)=>({spend:a.spend+x.spend, imp:a.imp+x.imp, res:a.res+x.res}),{spend:0,imp:0,res:0});
+  const avgCpl = T.res ? T.spend / T.res : null;
+
+  let list = Array.from(inRange.values()).map(x => ({ ...x,
+    daysN: x.days.size,
+    burn: x.budget && x.days.size ? x.spend/(x.budget*x.days.size)*100 : null,
+    cpl: x.res ? x.spend/x.res : null,
+    cpm: x.imp ? x.spend/x.imp*1000 : null,
+    share: T.spend ? x.spend/T.spend*100 : null,
+    dev: null }));
+  list.forEach(x => { if (x.cpl != null && avgCpl) x.dev = (x.cpl - avgCpl)/avgCpl*100; });
+
+  const key = { ad:"ad", days:"daysN", budget:"budget", spend:"spend", burn:"burn",
+    imp:"imp", res:"res", cpl:"cpl", cpm:"cpm", share:"share" }[M.sort.col] ?? "spend";
+  list.sort((a,b) => {
+    const av = a[key], bv = b[key];
+    if (av == null && bv == null) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    const r = typeof av === "string" ? av.localeCompare(bv) : av - bv;
+    return M.sort.dir === "asc" ? r : -r;
+  });
 
   const tm = new Map();
   daily.forEach(r => {
@@ -2126,75 +2237,120 @@ async function metaPerfView() {
 
   const cardBy = new Map(cards.filter(c=>c.meta_ad_name).map(c=>[c.meta_ad_name, c]));
 
+  const byDate = new Map();
+  daily.forEach(r => { const a = byDate.get(r.d) ?? []; a.push(r); byDate.set(r.d, a); });
+  const dateKeys = Array.from(byDate.keys()).sort((a,b)=>b.localeCompare(a));
+
+  const arrow = (c) => M.sort.col === c ? (M.sort.dir === "asc" ? " ▲" : " ▼") : "";
+
   $("c_body").innerHTML = `
-    <section class="card p16" style="margin-bottom:12px">
-      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
-        <div class="seg" id="mp_per">
-          ${[["7","최근 7일"],["30","최근 30일"],["90","최근 90일"]].map(([v,l])=>
-            `<button data-d="${v}"${String(M.days)===v?' class="on"':""}>${l}</button>`).join("")}
-        </div>
-        <label class="f" style="width:150px"><span class="lbl">시작일</span>
-          <input class="inp" type="date" id="mp_from" value="${M.from}"></label>
-        <label class="f" style="width:150px"><span class="lbl">종료일</span>
-          <input class="inp" type="date" id="mp_to" value="${M.to}"></label>
-      </div></section>
+    <div id="mp_filter"></div>
 
     <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
       ${[["지출",won(T.spend)],["노출",num(T.imp)],["결과(유입)",num(T.res)+"건"],
-         ["건당 비용",T.res?won(T.spend/T.res):"-"],["CPM",T.imp?won(T.spend/T.imp*1000):"-"]]
+         ["건당 비용",avgCpl?won(avgCpl):"-"],["CPM",T.imp?won(T.spend/T.imp*1000):"-"]]
         .map(([l,v])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("")}
     </div>
 
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
-      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 지출</h2>
-        ${svgLine(trend,"spend")}</section>
-      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 유입(결과)</h2>
-        ${svgLine(trend,"res","#0E7A5F")}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 지출</h2>${svgLine(trend,"spend")}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 유입(결과)</h2>${svgLine(trend,"res","#0E7A5F")}</section>
     </div>
 
     <div class="card scroll" style="margin-bottom:12px">
-      <div class="p16" style="padding-bottom:8px"><h2 class="h2">소재별 성과
-        <span class="sm muted">${num(list.length)}개</span></h2></div>
-      <table><thead><tr><th>광고 소재</th><th>연결 카드</th><th>일수</th><th>일일예산</th><th>지출</th><th>소진율</th><th>노출</th>
-        <th>결과</th><th>건당 비용</th><th>CPM</th><th>비중</th></tr></thead>
+      <div class="p16" style="padding-bottom:8px;display:flex;justify-content:space-between;align-items:baseline">
+        <h2 class="h2">소재별 성과 <span class="sm muted">${num(list.length)}개</span></h2>
+        <button class="btn" id="mp_sortrs" style="height:26px;font-size:11px">정렬 초기화</button></div>
+      <table><thead><tr>
+        ${MP_COLS.map(([c,l])=>c==="card"
+          ? `<th>${l}</th>`
+          : `<th class="sortable" data-sc="${c}">${l}${arrow(c)}</th>`).join("")}
+      </tr></thead>
       <tbody>${list.map(x=>{
         const c = cardBy.get(x.ad);
+        const devTxt = x.dev == null ? "" :
+          ` <span class="sm" style="color:${x.dev>0?"var(--gD)":"var(--gA)"}">(${x.dev>0?"+":""}${x.dev.toFixed(0)}%)</span>`;
         return `<tr>
-          <td style="font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
+          <td style="font-weight:500;max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
           <td class="sm">${c?`${esc(c.title??"")} ${"★".repeat(c.rating)}`:`<button class="btn" data-link="${esc(x.ad)}" style="height:24px;padding:0 7px;font-size:11px">연결</button>`}</td>
-          <td class="muted">${x.days.size}일</td>
+          <td class="muted">${x.daysN}일</td>
           <td class="muted">${x.budget?won(x.budget):"-"}</td>
           <td style="font-weight:500">${won(x.spend)}</td>
-          <td class="muted">${x.budget&&x.days.size?pct(x.spend/(x.budget*x.days.size)*100,0):"-"}</td>
+          <td class="muted">${x.burn!=null?pct(x.burn,0):"-"}</td>
           <td class="muted">${num(x.imp)}</td>
           <td>${num(x.res)}</td>
-          <td style="font-weight:500;${x.res&&T.res&&(x.spend/x.res)>(T.spend/T.res)*1.3?"color:var(--gD)":x.res?"color:var(--gA)":""}">${x.res?won(x.spend/x.res):"-"}</td>
-          <td class="muted">${x.imp?won(x.spend/x.imp*1000):"-"}</td>
-          <td class="muted">${T.spend?pct(x.spend/T.spend*100,0):"-"}</td></tr>`;}).join("")}
-      </tbody></table></div>
-
-    <div class="card scroll">
-      <div class="p16" style="padding-bottom:8px"><h2 class="h2">일자 × 소재 상세</h2></div>
-      <table><thead><tr><th>일자</th><th>광고 소재</th><th>지출</th><th>노출</th><th>도달</th><th>결과</th><th>건당 비용</th></tr></thead>
-      <tbody>${[...daily].reverse().slice(0,400).map(r=>`<tr>
-        <td>${esc(r.d)}</td>
-        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(r.ad_name)}</td>
-        <td>${won(r.spend)}</td><td class="muted">${num(r.impressions)}</td>
-        <td class="muted">${num(r.reach)}</td><td>${num(r.results)}</td>
-        <td>${r.cpl?won(r.cpl):"-"}</td></tr>`).join("")}
+          <td style="font-weight:500;${x.dev!=null&&x.dev>30?"color:var(--gD)":x.cpl!=null&&x.dev!=null&&x.dev<=0?"color:var(--gA)":""}">${x.cpl?won(x.cpl):"-"}${devTxt}</td>
+          <td class="muted">${x.cpm?won(x.cpm):"-"}</td>
+          <td class="muted">${x.share!=null?pct(x.share,0):"-"}</td></tr>`;}).join("")}
       </tbody></table>
-      ${daily.length>400?`<p class="sm muted p16">최근 400행만 표시합니다. 전체는 자료관리에서 내려받으세요.</p>`:""}
+      <p class="sm muted p16" style="padding-top:8px">건당 비용 괄호는 기간 전체 평균 ${avgCpl?won(avgCpl):"-"} 대비 등락입니다. 낮을수록 좋습니다.</p></div>
+
+    <div class="card" style="margin-bottom:12px">
+      <div class="p16" style="padding-bottom:8px;display:flex;justify-content:space-between;align-items:baseline">
+        <h2 class="h2">일자 × 소재 상세</h2>
+        <span class="sm"><button class="btn" id="mp_openall" style="height:26px;font-size:11px">전체 열기</button>
+        <button class="btn" id="mp_closeall" style="height:26px;font-size:11px">전체 닫기</button></span></div>
+      ${dateKeys.map((dk,di)=>{
+        const rows = byDate.get(dk);
+        const ds = rows.reduce((a,r)=>({s:a.s+Number(r.spend), res:a.res+Number(r.results)}),{s:0,res:0});
+        return `<details class="dgrp"${di===0?" open":""}>
+          <summary><span class="arr">▶</span>
+            <span style="font-weight:500">${esc(dk)}</span>
+            <span class="muted sm">소재 ${rows.length}개</span>
+            <span class="sm" style="margin-left:auto">지출 <b>${won(ds.s)}</b></span>
+            <span class="sm">결과 <b>${num(ds.res)}</b>건</span>
+            <span class="sm muted">건당 ${ds.res?won(ds.s/ds.res):"-"}</span></summary>
+          <div class="scroll"><table><thead><tr><th>광고 소재</th><th>지출</th><th>노출</th><th>도달</th><th>결과</th><th>건당 비용</th></tr></thead>
+          <tbody>${rows.sort((a,b)=>Number(b.spend)-Number(a.spend)).map(r=>`<tr>
+            <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">${esc(r.ad_name)}</td>
+            <td>${won(r.spend)}</td><td class="muted">${num(r.impressions)}</td>
+            <td class="muted">${num(r.reach)}</td><td>${num(r.results)}</td>
+            <td>${r.cpl?won(r.cpl):"-"}</td></tr>`).join("")}</tbody></table></div>
+        </details>`;}).join("")}
     </div>`;
 
+  renderMpFilter();
+  $("mp_sortrs").onclick = () => { M.sort = { col:"spend", dir:"desc" }; metaPerfView(); };
+  $("c_body").querySelectorAll("th[data-sc]").forEach(th => th.onclick = () => {
+    const c = th.dataset.sc;
+    if (M.sort.col === c) M.sort.dir = M.sort.dir === "desc" ? "asc" : "desc";
+    else M.sort = { col:c, dir:"desc" };
+    metaPerfView();
+  });
+  $("mp_openall").onclick = () => $("c_body").querySelectorAll("details.dgrp").forEach(d=>d.open=true);
+  $("mp_closeall").onclick = () => $("c_body").querySelectorAll("details.dgrp").forEach(d=>d.open=false);
+  $("c_body").querySelectorAll("button[data-link]").forEach(b => b.onclick = () => linkCard(b.dataset.link));
+}
+
+function renderMpFilter() {
+  const M = S.meta;
+  const box = $("mp_filter") ?? (() => {
+    const d = document.createElement("div"); d.id = "mp_filter";
+    $("c_body").prepend(d); return d; })();
+  const DAYS = [7,14,21,28,30,60,90];
+  box.innerHTML = `<section class="card p16" style="margin-bottom:12px">
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="seg" id="mp_per">
+        ${DAYS.map(n=>`<button data-d="${n}"${M.mode===String(n)?' class="on"':""}>${n}일</button>`).join("")}
+        <span class="vdiv"></span>
+        <button data-d="이번달"${M.mode==="이번달"?' class="on"':""}>이번달</button>
+        <button data-d="저번달"${M.mode==="저번달"?' class="on"':""}>지난달</button>
+      </div>
+      <label class="f" style="width:150px"><span class="lbl">시작일</span>
+        <input class="inp" type="date" id="mp_from" value="${M.from}"></label>
+      <label class="f" style="width:150px"><span class="lbl">종료일</span>
+        <input class="inp" type="date" id="mp_to" value="${M.to}"></label>
+    </div></section>`;
   $("mp_per").onclick = (e) => {
     const b = e.target.closest("button"); if (!b) return;
-    M.days = +b.dataset.d; M.from = daysAgo(M.days); M.to = ymd(new Date());
+    M.mode = b.dataset.d;
+    if (M.mode === "이번달") [M.from, M.to] = monthRange(0);
+    else if (M.mode === "저번달") [M.from, M.to] = monthRange(-1);
+    else { M.from = daysAgo(+M.mode); M.to = ymd(new Date()); }
     metaPerfView();
   };
-  $("mp_from").onchange = (e) => { M.from = e.target.value; metaPerfView(); };
-  $("mp_to").onchange   = (e) => { M.to   = e.target.value; metaPerfView(); };
-
-  $("c_body").querySelectorAll("button[data-link]").forEach(b => b.onclick = () => linkCard(b.dataset.link));
+  $("mp_from").onchange = (e) => { M.from = e.target.value; M.mode = ""; metaPerfView(); };
+  $("mp_to").onchange   = (e) => { M.to   = e.target.value; M.mode = ""; metaPerfView(); };
 }
 
 async function linkCard(adName) {
