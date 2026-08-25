@@ -156,6 +156,8 @@ const S = {
   up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null },
   perfTab: "채널", setTab: "채널·매체", cmpUnit: "일", autoRefresh: true,
   pasteTarget: null,
+  costTab: "입력",
+  meta: { parsed:null, days:30, from:"", to:"" },
   ads: { channel_id:2, view:"폴더", period:"이번달", from:"", to:"",
          rating:"", budget:"", onoff:"", sort:"desc", q:"" }
 };
@@ -887,6 +889,15 @@ async function vCosts() {
 
   $("main").innerHTML = `<div class="head"><div><h1 class="h1">광고비</h1>
     <p class="sm muted" style="margin-top:4px">최근 60일 · 합계 ${won(total)}</p></div></div>
+    <div class="seg" id="c_tab" style="margin-bottom:16px">
+      ${["입력","메타 리포트 업로드","소재별 성과"].map(t=>`<button data-t="${t}"${S.costTab===t?' class="on"':""}>${t}</button>`).join("")}
+    </div><div id="c_body"></div>`;
+  $("c_tab").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; S.costTab=b.dataset.t; vCosts(); };
+  if (!S.meta.from) { S.meta.from = daysAgo(S.meta.days); S.meta.to = ymd(new Date()); }
+  if (S.costTab === "메타 리포트 업로드") return metaUploadView();
+  if (S.costTab === "소재별 성과") return metaPerfView();
+
+  $("c_body").innerHTML = `
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
       <section class="card p16"><h2 class="h2" style="margin-bottom:12px">한 건 입력</h2>
         <div class="grid" style="grid-template-columns:1fr 1fr">
@@ -919,6 +930,7 @@ async function vCosts() {
         <td><button class="btn" data-del="${r.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td></tr>`).join("")}
       </tbody></table></div>`:`<div class="card empty">등록된 광고비가 없습니다.</div>`}`;
 
+  if (!$("c_ch")) return;
   $("c_ch").onchange = (e) => {
     const ms = S.media.filter(m => String(m.channel_id)===e.target.value && m.is_active);
     $("c_md").innerHTML = `<option value="">선택</option>` + opt(ms,"","id","name");
@@ -964,7 +976,7 @@ async function vCosts() {
     if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
     vCosts();
   };
-  $("main").querySelectorAll("button[data-del]").forEach(b => b.onclick = async () => {
+  $("c_body").querySelectorAll("button[data-del]").forEach(b => b.onclick = async () => {
     if (!confirm("이 광고비 기록을 삭제할까요?")) return;
     await sb.from("ad_costs").delete().eq("id", +b.dataset.del); vCosts();
   });
@@ -1474,6 +1486,391 @@ function openAdForm(row) {
 }
 
 /* ============================================================
+   메타 리포트
+   ============================================================ */
+const META_COLS = {
+  date:   ["보고 시작","보고시작","시작","reporting starts","day","date","날짜"],
+  end:    ["보고 종료","보고종료","reporting ends"],
+  ad:     ["광고 이름","광고이름","ad name"],
+  adset:  ["광고 세트 이름","광고세트 이름","ad set name"],
+  plat:   ["플랫폼","platform"],
+  place:  ["노출 위치","노출위치","placement"],
+  device: ["기기 플랫폼","기기","device platform","impression device"],
+  spend:  ["지출 금액","지출금액","amount spent","소진 금액"],
+  imp:    ["노출","impressions"],
+  reach:  ["도달","reach"],
+  result: ["결과","results"],
+  deliv:  ["광고 게재","게재","delivery"]
+};
+
+function findCol(headers, keys) {
+  const norm = headers.map(h => String(h ?? "").toLowerCase().replace(/\s|\(|\)|krw|₩/g,""));
+  for (const k of keys) {
+    const kk = k.toLowerCase().replace(/\s/g,"");
+    const i = norm.findIndex(h => h === kk);
+    if (i >= 0) return i;
+  }
+  for (const k of keys) {
+    const kk = k.toLowerCase().replace(/\s/g,"");
+    const i = norm.findIndex(h => h.startsWith(kk));
+    if (i >= 0) return i;
+  }
+  return -1;
+}
+
+/* 플랫폼 + 노출위치 → 매체코드 */
+function placeToMedia(plat, place) {
+  const p = String(plat ?? "");
+  const q = String(place ?? "");
+  const isIG = /instagram|인스타/i.test(p);
+  if (/스토리|story/i.test(q))                  return isIG ? "IG-STORY" : "MT-STORY";
+  if (/릴스|reel/i.test(q))                     return isIG ? "IG-REEL"  : "MT-REEL";
+  if (/피드|feed|탐색|explore|프로필|profile/i.test(q)) return isIG ? "IG-FEED"  : "MT-FEED";
+  if (isIG) return "IG-FEED";
+  if (/검색|search|marketplace|마켓|메신저|messenger|인스트림|instream|비디오|video/i.test(q)) return "MT-AN";
+  return "MT-AN";
+}
+
+const toNum = (v) => {
+  if (v == null || v === "") return 0;
+  const n = Number(String(v).replace(/[^0-9.\-]/g, ""));
+  return isNaN(n) ? 0 : n;
+};
+function toDate(v) {
+  if (v instanceof Date && !isNaN(v)) return ymd(v);
+  const s = String(v ?? "").trim();
+  const m = s.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+  if (m) return `${m[1]}-${pad(+m[2])}-${pad(+m[3])}`;
+  const d = new Date(s);
+  return isNaN(d) ? null : ymd(d);
+}
+
+async function metaUploadView() {
+  const M = S.meta;
+  $("c_body").innerHTML = `
+    <section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:4px">메타 광고 관리자 리포트 올리기</h2>
+      <p class="sm muted" style="margin-bottom:12px;line-height:1.7">
+        광고 관리자 → <b>광고</b> 탭 → 기간 지정 → 분류 <b>시간별 · 일별</b> → 표 데이터 내보내기(xlsx)로 받은 파일을 그대로 올리세요.
+        일자별 · 소재별로 자동 정리되고 광고비에도 함께 반영됩니다.</p>
+      <input class="inp" type="file" id="mt_file" accept=".xlsx,.xls,.csv" style="padding:6px 8px;max-width:420px">
+      <span class="msg" id="mt_msg"></span>
+    </section>
+    <div id="mt_prev"></div>`;
+  $("mt_file").onchange = (e) => readMeta(e.target.files[0]);
+  if (M.parsed) renderMetaPreview();
+}
+
+async function readMeta(file) {
+  if (!file) return;
+  const m = $("mt_msg");
+  m.className = "msg"; m.textContent = "파일을 읽는 중";
+  try {
+    const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
+    const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+    if (aoa.length < 2) { m.className="msg err"; m.textContent="데이터가 없는 파일입니다."; return; }
+
+    let hi = 0;
+    for (let i=0;i<Math.min(aoa.length,8);i++)
+      if (aoa[i].filter(x=>String(x).trim()).length >= 4) { hi = i; break; }
+    const H = aoa[hi].map(x => String(x).trim());
+
+    const C = {};
+    Object.entries(META_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
+    if (C.date < 0 || C.ad < 0 || C.spend < 0) {
+      m.className="msg err";
+      m.textContent = "메타 리포트 형식이 아닙니다. 보고 시작 · 광고 이름 · 지출 금액 열이 필요합니다.";
+      return;
+    }
+
+    const mediaByCode = new Map(S.media.map(x => [x.code, x]));
+    const rows = [], bad = [];
+    aoa.slice(hi+1).forEach(r => {
+      if (!r.some(x => String(x).trim() !== "")) return;
+      const d = toDate(r[C.date]);
+      const ad = String(r[C.ad] ?? "").trim();
+      if (!d || !ad) { bad.push(r); return; }
+      const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
+      const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
+      const code = placeToMedia(plat, place);
+      const md = mediaByCode.get(code);
+      rows.push({
+        stat_date: d, ad_name: ad,
+        adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
+        platform: plat || null, placement: place || null,
+        device: C.device >= 0 ? String(r[C.device] ?? "").trim() || null : null,
+        channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
+        spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
+        reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
+        results: C.result >= 0 ? toNum(r[C.result]) : 0,
+        delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
+      });
+    });
+
+    if (!rows.length) { m.className="msg err"; m.textContent="인식된 행이 없습니다."; return; }
+
+    const dates = rows.map(r=>r.stat_date).sort();
+    S.meta.parsed = {
+      file: file.name, rows, bad: bad.length,
+      from: dates[0], to: dates[dates.length-1],
+      ads: Array.from(new Set(rows.map(r=>r.ad_name))),
+      spend: rows.reduce((a,r)=>a+r.spend,0),
+      imp: rows.reduce((a,r)=>a+r.impressions,0),
+      results: rows.reduce((a,r)=>a+r.results,0)
+    };
+    m.textContent = "";
+    renderMetaPreview();
+  } catch (err) { m.className="msg err"; m.textContent = "파일을 읽지 못했습니다: " + err.message; }
+}
+
+function renderMetaPreview() {
+  const P = S.meta.parsed;
+
+  const byAd = new Map();
+  P.rows.forEach(r => {
+    const x = byAd.get(r.ad_name) ?? { ad:r.ad_name, spend:0, imp:0, res:0, days:new Set() };
+    x.spend += r.spend; x.imp += r.impressions; x.res += r.results; x.days.add(r.stat_date);
+    byAd.set(r.ad_name, x);
+  });
+  const ads = Array.from(byAd.values()).sort((a,b)=>b.spend-a.spend);
+
+  const byMedia = new Map();
+  P.rows.forEach(r => {
+    const k = r.media_id ?? 0;
+    const x = byMedia.get(k) ?? { media_id:r.media_id, spend:0, imp:0, res:0 };
+    x.spend += r.spend; x.imp += r.impressions; x.res += r.results;
+    byMedia.set(k, x);
+  });
+
+  $("mt_prev").innerHTML = `<section class="card p16" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <h2 class="h2">확인</h2><span class="sm muted">${esc(P.file)}</span></div>
+      <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:16px">
+        ${[["기간",`${P.from} ~ ${P.to}`],["광고 소재",num(P.ads.length)+"개"],
+           ["지출",won(P.spend)],["노출",num(P.imp)],["결과(유입)",num(P.results)+"건"]]
+          .map(([l,v])=>`<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
+            <div class="lbl">${l}</div><div style="font-size:16px;font-weight:500;margin-top:4px">${v}</div></div>`).join("")}
+      </div>
+      ${P.bad?`<p class="sm" style="color:var(--gC);margin-bottom:12px">날짜나 광고 이름이 없는 ${num(P.bad)}행은 제외됩니다.</p>`:""}
+
+      <div class="scroll" style="border:1px solid var(--line);border-radius:6px;max-height:280px;overflow-y:auto">
+        <table><thead><tr><th>광고 소재</th><th>일수</th><th>지출</th><th>노출</th><th>결과</th><th>건당 비용</th></tr></thead>
+        <tbody>${ads.map(a=>`<tr>
+          <td style="font-weight:500">${esc(a.ad)}</td><td class="muted">${a.days.size}일</td>
+          <td>${won(a.spend)}</td><td class="muted">${num(a.imp)}</td>
+          <td>${num(a.res)}</td>
+          <td style="font-weight:500">${a.res?won(a.spend/a.res):"-"}</td></tr>`).join("")}
+        </tbody></table></div>
+
+      <div style="margin-top:14px">
+        <div class="lbl" style="margin-bottom:6px">매체 자동 분류</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          ${Array.from(byMedia.values()).sort((a,b)=>b.spend-a.spend).map(x=>`
+            <span style="border:1px solid var(--line);border-radius:5px;padding:5px 9px;font-size:12px">
+              ${x.media_id?esc(mdName(x.media_id)):`<span style="color:var(--gD)">미분류</span>`}
+              <span class="muted"> · ${won(x.spend)}</span></span>`).join("")}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:16px;align-items:center;margin-top:20px;flex-wrap:wrap">
+        <label class="sm" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="mt_sync" checked> 광고비 메뉴에도 함께 반영</label>
+        <button class="btn-solid" id="mt_save">저장하기</button>
+        <span class="msg" id="mt_smsg"></span>
+      </div>
+      <p class="sm muted" style="margin-top:12px">같은 날짜·소재는 덮어쓰기됩니다. 여러 번 올려도 중복 집계되지 않습니다.</p>
+    </section>`;
+  $("mt_save").onclick = saveMeta;
+}
+
+async function saveMeta() {
+  const P = S.meta.parsed, m = $("mt_smsg");
+  const sync = $("mt_sync").checked;
+  $("mt_save").disabled = true;
+  m.className = "msg"; m.textContent = "저장 중";
+
+  const { data: batch } = await sb.from("import_batches").insert({
+    type:"ad_cost", file_name:P.file, row_count:P.rows.length, uploaded_by:S.user?.id ?? null
+  }).select("id").single();
+
+  // 같은 키가 파일 안에 두 번 나오면 합산해 손실을 막습니다
+  const merged = new Map();
+  P.rows.forEach(r => {
+    const k = [r.stat_date, r.ad_name, r.adset_name, r.platform, r.placement, r.device].join("\u0001");
+    const x = merged.get(k);
+    if (x) { x.spend += r.spend; x.impressions += r.impressions; x.reach += r.reach; x.results += r.results; }
+    else merged.set(k, { ...r });
+  });
+  const payload = Array.from(merged.values()).map(r => ({ ...r, import_batch_id: batch?.id ?? null }));
+  let ok = 0, fail = 0, lastErr = "";
+  for (let i = 0; i < payload.length; i += 300) {
+    const { error } = await sb.from("meta_ad_daily").upsert(payload.slice(i, i+300), {
+      onConflict: "stat_date,ad_name,adset_name,platform,placement,device" });
+    const n = Math.min(300, payload.length-i);
+    if (error) { fail += n; lastErr = error.message; } else ok += n;
+  }
+  if (fail) {
+    $("mt_save").disabled = false;
+    m.className="msg err"; m.textContent = `${num(ok)}건 저장, ${num(fail)}건 실패: ${lastErr}`;
+    return;
+  }
+
+  if (sync) {
+    const agg = new Map();
+    P.rows.forEach(r => {
+      if (!r.media_id) return;
+      const k = `${r.stat_date}|${r.media_id}`;
+      const x = agg.get(k) ?? { cost_date:r.stat_date, channel_id:r.channel_id, media_id:r.media_id,
+        campaign_id:null, creative_id:null, cost:0, impressions:0, clicks:0 };
+      x.cost += r.spend; x.impressions += r.impressions;
+      agg.set(k, x);
+    });
+    const list = Array.from(agg.values()).map(x => ({ ...x, cost: Math.round(x.cost) }));
+    for (let i = 0; i < list.length; i += 200) {
+      await sb.from("ad_costs").upsert(list.slice(i, i+200), {
+        onConflict: "cost_date,channel_id,media_id,campaign_id,creative_id" });
+    }
+  }
+
+  m.className="msg"; m.textContent = `${num(ok)}건을 저장했습니다.`;
+  S.meta.parsed = null;
+  setTimeout(() => { S.costTab = "소재별 성과"; vCosts(); }, 900);
+}
+
+/* ---- 소재별 성과 ---- */
+async function metaPerfView() {
+  const M = S.meta;
+  const [dl, cr, ac] = await Promise.all([
+    sb.from("v_meta_daily").select("*").gte("d", M.from).lte("d", M.to).order("d"),
+    sb.from("v_meta_creative").select("*"),
+    sb.from("ad_creatives").select("id,title,meta_ad_name,rating,is_on")
+  ]);
+  const daily = dl.data ?? [], creas = cr.data ?? [], cards = ac.data ?? [];
+
+  if (!daily.length && !creas.length) {
+    $("c_body").innerHTML = `<div class="card empty">저장된 메타 실적이 없습니다. 리포트 업로드 탭에서 파일을 올려주세요.</div>`;
+    return;
+  }
+
+  const inRange = new Map();
+  daily.forEach(r => {
+    const x = inRange.get(r.ad_name) ?? { ad:r.ad_name, spend:0, imp:0, res:0, days:new Set() };
+    x.spend += Number(r.spend); x.imp += Number(r.impressions); x.res += Number(r.results); x.days.add(r.d);
+    inRange.set(r.ad_name, x);
+  });
+  const list = Array.from(inRange.values()).sort((a,b)=>b.spend-a.spend);
+  const T = list.reduce((a,x)=>({spend:a.spend+x.spend, imp:a.imp+x.imp, res:a.res+x.res}),{spend:0,imp:0,res:0});
+
+  const tm = new Map();
+  daily.forEach(r => {
+    const x = tm.get(r.d) ?? { d:r.d, k:r.d.slice(5), spend:0, res:0 };
+    x.spend += Number(r.spend); x.res += Number(r.results); tm.set(r.d, x);
+  });
+  const trend = Array.from(tm.values()).sort((a,b)=>a.d.localeCompare(b.d));
+
+  const cardBy = new Map(cards.filter(c=>c.meta_ad_name).map(c=>[c.meta_ad_name, c]));
+
+  $("c_body").innerHTML = `
+    <section class="card p16" style="margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+        <div class="seg" id="mp_per">
+          ${[["7","최근 7일"],["30","최근 30일"],["90","최근 90일"]].map(([v,l])=>
+            `<button data-d="${v}"${String(M.days)===v?' class="on"':""}>${l}</button>`).join("")}
+        </div>
+        <label class="f" style="width:150px"><span class="lbl">시작일</span>
+          <input class="inp" type="date" id="mp_from" value="${M.from}"></label>
+        <label class="f" style="width:150px"><span class="lbl">종료일</span>
+          <input class="inp" type="date" id="mp_to" value="${M.to}"></label>
+      </div></section>
+
+    <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
+      ${[["지출",won(T.spend)],["노출",num(T.imp)],["결과(유입)",num(T.res)+"건"],
+         ["건당 비용",T.res?won(T.spend/T.res):"-"],["CPM",T.imp?won(T.spend/T.imp*1000):"-"]]
+        .map(([l,v])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("")}
+    </div>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 지출</h2>
+        ${svgLine(trend,"spend")}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일별 유입(결과)</h2>
+        ${svgLine(trend,"res","#0E7A5F")}</section>
+    </div>
+
+    <div class="card scroll" style="margin-bottom:12px">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">소재별 성과
+        <span class="sm muted">${num(list.length)}개</span></h2></div>
+      <table><thead><tr><th>광고 소재</th><th>연결 카드</th><th>일수</th><th>지출</th><th>노출</th>
+        <th>결과</th><th>건당 비용</th><th>CPM</th><th>비중</th></tr></thead>
+      <tbody>${list.map(x=>{
+        const c = cardBy.get(x.ad);
+        return `<tr>
+          <td style="font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
+          <td class="sm">${c?`${esc(c.title??"")} ${"★".repeat(c.rating)}`:`<button class="btn" data-link="${esc(x.ad)}" style="height:24px;padding:0 7px;font-size:11px">연결</button>`}</td>
+          <td class="muted">${x.days.size}일</td>
+          <td style="font-weight:500">${won(x.spend)}</td>
+          <td class="muted">${num(x.imp)}</td>
+          <td>${num(x.res)}</td>
+          <td style="font-weight:500;${x.res&&T.res&&(x.spend/x.res)>(T.spend/T.res)*1.3?"color:var(--gD)":x.res?"color:var(--gA)":""}">${x.res?won(x.spend/x.res):"-"}</td>
+          <td class="muted">${x.imp?won(x.spend/x.imp*1000):"-"}</td>
+          <td class="muted">${T.spend?pct(x.spend/T.spend*100,0):"-"}</td></tr>`;}).join("")}
+      </tbody></table></div>
+
+    <div class="card scroll">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">일자 × 소재 상세</h2></div>
+      <table><thead><tr><th>일자</th><th>광고 소재</th><th>지출</th><th>노출</th><th>도달</th><th>결과</th><th>건당 비용</th></tr></thead>
+      <tbody>${[...daily].reverse().slice(0,400).map(r=>`<tr>
+        <td>${esc(r.d)}</td>
+        <td style="max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(r.ad_name)}</td>
+        <td>${won(r.spend)}</td><td class="muted">${num(r.impressions)}</td>
+        <td class="muted">${num(r.reach)}</td><td>${num(r.results)}</td>
+        <td>${r.cpl?won(r.cpl):"-"}</td></tr>`).join("")}
+      </tbody></table>
+      ${daily.length>400?`<p class="sm muted p16">최근 400행만 표시합니다. 전체는 자료관리에서 내려받으세요.</p>`:""}
+    </div>`;
+
+  $("mp_per").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    M.days = +b.dataset.d; M.from = daysAgo(M.days); M.to = ymd(new Date());
+    metaPerfView();
+  };
+  $("mp_from").onchange = (e) => { M.from = e.target.value; metaPerfView(); };
+  $("mp_to").onchange   = (e) => { M.to   = e.target.value; metaPerfView(); };
+
+  $("c_body").querySelectorAll("button[data-link]").forEach(b => b.onclick = () => linkCard(b.dataset.link));
+}
+
+async function linkCard(adName) {
+  const { data } = await sb.from("ad_creatives").select("id,title,channel_id,meta_ad_name").order("published_on",{ascending:false}).limit(200);
+  const cards = data ?? [];
+  const wrap = document.createElement("div");
+  wrap.className = "modal";
+  wrap.innerHTML = `<div class="modal-box" style="max-width:520px">
+    <h2 class="h2" style="margin-bottom:6px">소재 카드 연결</h2>
+    <p class="sm muted" style="margin-bottom:16px;line-height:1.6">
+      메타 광고 <b>${esc(adName)}</b> 를 META 광고소재 카드와 연결하면 별점·본문과 함께 볼 수 있습니다.</p>
+    <label class="f" style="margin-bottom:16px"><span class="lbl">연결할 카드</span>
+      <select class="inp" id="lk_id"><option value="">선택</option>
+        ${cards.map(c=>`<option value="${c.id}">${esc(c.title ?? "제목 없음")}${c.meta_ad_name?" (이미 연결됨)":""}</option>`).join("")}</select></label>
+    <div style="display:flex;gap:8px">
+      <button class="btn-solid" id="lk_go">연결</button>
+      <button class="btn" id="lk_x">취소</button>
+      <span class="msg" id="lk_m"></span></div>
+    ${cards.length?"":`<p class="sm muted" style="margin-top:12px">등록된 카드가 없습니다. META 광고소재 메뉴에서 먼저 만들어주세요.</p>`}
+  </div>`;
+  document.body.appendChild(wrap);
+  const close = () => wrap.remove();
+  $("lk_x").onclick = close;
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+  $("lk_go").onclick = async () => {
+    if (!$("lk_id").value) { $("lk_m").className="msg err"; $("lk_m").textContent="카드를 선택하세요."; return; }
+    await sb.from("ad_creatives").update({ meta_ad_name: adName }).eq("id", $("lk_id").value);
+    await sb.from("meta_ad_daily").update({ creative_ref: $("lk_id").value }).eq("ad_name", adName);
+    close(); metaPerfView();
+  };
+}
+
+/* ============================================================
    계약
    ============================================================ */
 async function vContracts() {
@@ -1821,6 +2218,8 @@ const SRC = [
   { k:"ad_costs", l:"광고비", d:"cost_date" },
   { k:"contracts", l:"계약", d:"contract_date" },
   { k:"v_perf_daily", l:"일자별 성과", d:"d" },
+  { k:"meta_ad_daily", l:"메타 소재별 일자 실적", d:"stat_date" },
+  { k:"v_meta_creative", l:"메타 소재 누적", d:"" },
   { k:"v_monthly_pnl", l:"월별 손익", d:"" },
   { k:"v_channel_grade", l:"채널 등급", d:"" },
   { k:"v_creative_perf", l:"소재 성과", d:"" }
