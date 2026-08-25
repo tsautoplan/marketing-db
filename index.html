@@ -1,0 +1,1875 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>마케팅 DB 관리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+:root{
+  --ink:#16181D; --paper:#FBFBF9; --panel:#FFF; --line:#E6E5E0; --muted:#6E7079;
+  --accent:#1F4FD8; --gA:#0E7A5F; --gB:#2563A8; --gC:#B4740E; --gD:#B03A3A;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Pretendard Variable',Pretendard,-apple-system,system-ui,sans-serif;
+  background:var(--paper);color:var(--ink);font-size:13px;-webkit-font-smoothing:antialiased}
+table{font-variant-numeric:tabular-nums;border-collapse:collapse;width:100%}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+a{color:inherit}
+.hide{display:none!important}
+
+/* layout */
+.wrap{display:flex;min-height:100vh}
+.side{width:184px;flex-shrink:0;border-right:1px solid var(--line);background:var(--panel);
+  display:flex;flex-direction:column}
+.side .brand{padding:24px 20px 20px}
+.side .brand .k{font-size:10px;letter-spacing:.18em;color:var(--muted)}
+.side .brand .n{font-size:14px;font-weight:500;margin-top:2px}
+.nav{padding:0 8px;flex:1}
+.nav button{display:block;width:100%;text-align:left;padding:8px 12px;border:0;background:none;
+  border-radius:6px;font:inherit;font-size:13px;color:rgba(22,24,29,.75);cursor:pointer;margin-bottom:2px}
+.nav button:hover{background:rgba(230,229,224,.5)}
+.nav button.on{background:var(--ink);color:#fff}
+.side .foot{padding:12px;border-top:1px solid var(--line)}
+.side .foot .em{font-size:11px;color:var(--muted);margin-bottom:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+main{flex:1;min-width:0;padding:24px 28px}
+
+/* atoms */
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.p16{padding:16px}
+.lbl{font-size:11px;letter-spacing:.02em;color:var(--muted)}
+.val{font-size:22px;font-weight:500;margin-top:6px}
+.muted{color:var(--muted)}
+.sm{font-size:11px}
+.btn{height:36px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:6px;
+  font:inherit;font-size:13px;cursor:pointer}
+.btn:hover{border-color:rgba(22,24,29,.4)}
+.btn-solid{height:36px;padding:0 16px;border:0;background:var(--ink);color:#fff;border-radius:6px;
+  font:inherit;font-size:13px;cursor:pointer}
+.btn-solid:hover{opacity:.85}
+.btn-solid:disabled,.btn:disabled{opacity:.45;cursor:default}
+.inp,select.inp,textarea.inp{height:36px;padding:0 10px;border:1px solid var(--line);background:#fff;
+  border-radius:6px;font:inherit;font-size:13px;width:100%;color:inherit}
+textarea.inp{height:auto;padding:8px 10px;line-height:1.6;resize:vertical}
+.inp:focus{border-color:var(--accent);outline:none}
+th{text-align:left;font-size:11px;font-weight:400;color:var(--muted);padding:8px 12px;
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px 12px;font-size:13px;border-bottom:1px solid rgba(230,229,224,.7);white-space:nowrap}
+.grid{display:grid;gap:12px}
+.head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;margin-bottom:20px}
+.h1{font-size:19px;font-weight:500}
+.h2{font-size:14px;font-weight:500}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#fff}
+.seg button{height:36px;padding:0 14px;border:0;border-left:1px solid var(--line);background:none;
+  font:inherit;font-size:13px;cursor:pointer}
+.seg button:first-child{border-left:0}
+.seg button.on{background:var(--ink);color:#fff}
+.badge{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;
+  border-radius:5px;color:#fff;font-size:12px;font-weight:500}
+.badge-o{display:inline-flex;align-items:center;height:22px;padding:0 6px;border:1px solid var(--line);
+  border-radius:5px;font-size:11px;color:var(--muted)}
+.empty{padding:40px;text-align:center;color:var(--muted)}
+.dup{background:rgba(180,116,14,.06)}
+.sel-sm{height:28px;padding:0 6px;border:1px solid var(--line);border-radius:5px;font:inherit;font-size:12px;background:#fff}
+.bar-bg{height:6px;background:var(--line);border-radius:99px;overflow:hidden}
+.bar-fg{height:100%;background:var(--accent)}
+.msg{font-size:12px;margin-top:10px}
+.err{color:var(--gD)}
+.scroll{overflow-x:auto}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  /* 광고 소재 */
+  .adc{transition:opacity .18s, filter .18s}
+  .adc.off{opacity:.42;filter:grayscale(1) blur(.6px)}
+  .adc.off .tgl,.adc.off .stars,.adc.off button{filter:none;opacity:1}
+  .drop{border:1.5px dashed var(--line);border-radius:8px;padding:8px;cursor:pointer;
+    transition:border-color .15s,background .15s}
+  .drop:hover{border-color:var(--accent)}
+  .drop.over{border-color:var(--accent);background:rgba(31,79,216,.06)}
+  .fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+  .fcell{position:relative}
+  .fdel{position:absolute;top:3px;right:3px;width:20px;height:20px;border:0;border-radius:5px;
+    background:rgba(0,0,0,.62);color:#fff;font-size:13px;line-height:1;cursor:pointer;padding:0}
+  .fdel:hover{background:var(--gD)}
+  .ph{display:grid;place-items:center;border-radius:6px;background:#F4F4F0;color:var(--muted);font-size:12px}
+  .tgl{display:inline-flex;align-items:center;cursor:pointer}
+  .tgl input{position:absolute;opacity:0;width:0;height:0}
+  .tgl-t{width:34px;height:19px;border-radius:99px;background:#D6D5CF;position:relative;transition:background .18s;display:inline-block}
+  .tgl-t::after{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;
+    background:#fff;transition:transform .18s;box-shadow:0 1px 2px rgba(0,0,0,.2)}
+  .tgl input:checked + .tgl-t{background:var(--gA)}
+  .tgl input:checked + .tgl-t::after{transform:translateX(15px)}
+  .stars{display:inline-flex;align-items:center;gap:1px}
+  .star{border:0;background:none;font-size:17px;line-height:1;color:#D6D5CF;cursor:pointer;padding:0 1px}
+  .star.on{color:#E0A100}
+  .star:hover{color:#E0A100}
+  .star-clr{border:0;background:none;color:var(--muted);font-size:13px;cursor:pointer;margin-left:3px;padding:0 2px}
+  .spin{position:relative}
+  .spin .inp{padding-right:30px;font-weight:500}
+  .spin-btns{position:absolute;right:1px;top:1px;bottom:1px;width:26px;display:flex;flex-direction:column;
+    border-left:1px solid var(--line)}
+  .spin-btns button{flex:1;border:0;background:#FAFAF7;cursor:pointer;font-size:8px;color:var(--muted);padding:0}
+  .spin-btns button:hover{background:var(--line);color:var(--ink)}
+  .spin-btns button:first-child{border-bottom:1px solid var(--line);border-radius:0 5px 0 0}
+  .spin-btns button:last-child{border-radius:0 0 5px 0}
+  .modal{position:fixed;inset:0;background:rgba(22,24,29,.42);display:grid;place-items:center;padding:24px;z-index:50}
+  .modal-box{background:#fff;border-radius:12px;padding:24px;width:100%;max-width:620px;max-height:88vh;overflow-y:auto}
+
+label.f{display:block}
+label.f .lbl{display:block;margin-bottom:4px}
+
+/* login */
+.login{min-height:100vh;display:grid;place-items:center;padding:24px}
+.login .box{width:100%;max-width:320px}
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<script type="module">
+import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm";
+
+/* ============================================================
+   설정 — Supabase 접속 정보
+   ============================================================ */
+const SUPABASE_URL  = "https://gkbavdbwsssvxkqqibex.supabase.co";
+const SUPABASE_ANON  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdrYmF2ZGJ3c3NzdnhrcXFpYmV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNTIwMjEsImV4cCI6MjEwMDcyODAyMX0.8ZLXlDT0xbDYimSYCl0gtsLpnRvOMhZ9fa8clw4Pl2A";
+/* ============================================================ */
+
+const DEMO = false;
+const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
+  auth: { persistSession: true, autoRefreshToken: true }
+});
+
+const S = {
+  user: null, role: "marketer", page: "dashboard", days: 30,
+  channels: [], media: [], models: [], camps: [], creas: [],
+  leadTab: "목록", leadFilter: { q:"", ch:"", st:"" }, sel: new Set(),
+  up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null },
+  perfTab: "채널", setTab: "채널·매체", cmpUnit: "일", autoRefresh: true,
+  ads: { channel_id:2, view:"폴더", period:"이번달", from:"", to:"",
+         rating:"", budget:"", onoff:"", sort:"desc", q:"" }
+};
+
+const STATUS = ["신규","상담중","견적발송","심사요청","심사통과","계약","이탈"];
+const CREDIT = ["미신청","통과","거절","보류"];
+const SOURCE = ["신규","재문의","소개"];
+const DOW = ["일","월","화","수","목","금","토"];
+const GC = { A:"#0E7A5F", B:"#2563A8", C:"#B4740E", D:"#B03A3A" };
+const GL = { A:"예산 증액", B:"유지", C:"소재 교체", D:"중단 검토" };
+
+/* ---------- helpers ---------- */
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const won = (n) => n == null ? "-" : "\u20A9" + Math.round(n).toLocaleString("ko-KR");
+const num = (n) => n == null ? "-" : Math.round(n).toLocaleString("ko-KR");
+const pct = (n, d = 1) => n == null ? "-" : Number(n).toFixed(d) + "%";
+const pad = (v) => String(v).padStart(2, "0");
+const ymd = (dt) => `${dt.getFullYear()}-${pad(dt.getMonth()+1)}-${pad(dt.getDate())}`;
+const daysAgo = (n) => { const d = new Date(); d.setDate(d.getDate()-n); return ymd(d); };
+const yymm = () => { const d = new Date(); return String(d.getFullYear()).slice(2) + pad(d.getMonth()+1); };
+const thisYm = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`; };
+const localNow = () => { const d = new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16); };
+const badge = (g) => g ? `<span class="badge" style="background:${GC[g]}" title="${GL[g]}">${g}</span>` : `<span class="badge-o">오가닉</span>`;
+const opt = (arr, sel, val, txt) => arr.map(o => {
+  const v = val ? o[val] : o, t = txt ? o[txt] : o;
+  return `<option value="${esc(v)}"${String(v)===String(sel)?" selected":""}>${esc(t)}</option>`;
+}).join("");
+const delta = (cur, prev, invert) => {
+  if (prev == null || prev === 0 || cur == null) return `<span class="muted">-</span>`;
+  const r = (cur - prev) / prev * 100;
+  const good = invert ? r < 0 : r > 0;
+  const col = Math.abs(r) < 0.5 ? "var(--muted)" : (good ? "var(--gA)" : "var(--gD)");
+  return `<span style="color:${col}">${r > 0 ? "▲" : r < 0 ? "▼" : "–"} ${Math.abs(r).toFixed(1)}%</span>`;
+};
+const weekStart = (s) => { const d = new Date(s); d.setDate(d.getDate() - d.getDay()); return ymd(d); };
+
+/* ---------- charts ---------- */
+function svgLine(data, key, color) {
+  if (!data.length) return `<div class="empty">표시할 추이가 없습니다.</div>`;
+  const W = 640, H = 200, P = 8;
+  const max = Math.max(1, ...data.map(d => d[key]));
+  const step = data.length > 1 ? (W - P*2) / (data.length - 1) : 0;
+  const pts = data.map((d,i) => `${(P+i*step).toFixed(1)},${(H-P-(d[key]/max)*(H-P*2)).toFixed(1)}`).join(" ");
+  const grid = [0.25,0.5,0.75,1].map(r => `<line x1="0" y1="${(H-P-r*(H-P*2)).toFixed(1)}" x2="${W}" y2="${(H-P-r*(H-P*2)).toFixed(1)}" stroke="#E6E5E0" stroke-width="1"/>`).join("");
+  const dots = data.map((d,i) => `<circle cx="${(P+i*step).toFixed(1)}" cy="${(H-P-(d[key]/max)*(H-P*2)).toFixed(1)}" r="8" fill="transparent"><title>${esc(d.k ?? d.d)} · ${num(d[key])}</title></circle>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:200px" role="img" aria-label="추이">
+    ${grid}<polyline points="${pts}" fill="none" stroke="${color || "var(--accent)"}" stroke-width="2"/>${dots}</svg>
+    <div class="sm muted" style="display:flex;justify-content:space-between;margin-top:6px">
+      <span>${esc(data[0].k ?? data[0].d)}</span><span>최고 ${num(max)}</span><span>${esc(data[data.length-1].k ?? data[data.length-1].d)}</span></div>`;
+}
+
+function svgDual(cur, prev, key, labels) {
+  const n = Math.max(cur.length, prev.length);
+  if (!n) return `<div class="empty">비교할 데이터가 없습니다.</div>`;
+  const W = 640, H = 210, P = 8;
+  const max = Math.max(1, ...cur.map(d=>d[key]), ...prev.map(d=>d[key]));
+  const step = n > 1 ? (W - P*2) / (n - 1) : 0;
+  const line = (arr, color, dash) => {
+    if (!arr.length) return "";
+    const pts = arr.map((d,i) => `${(P+i*step).toFixed(1)},${(H-P-(d[key]/max)*(H-P*2)).toFixed(1)}`).join(" ");
+    return `<polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2"${dash?' stroke-dasharray="4 3"':""}/>`;
+  };
+  const grid = [0.25,0.5,0.75,1].map(r => `<line x1="0" y1="${(H-P-r*(H-P*2)).toFixed(1)}" x2="${W}" y2="${(H-P-r*(H-P*2)).toFixed(1)}" stroke="#E6E5E0" stroke-width="1"/>`).join("");
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:210px" role="img" aria-label="기간 비교">
+      ${grid}${line(prev,"#B9B8B2",true)}${line(cur,"var(--accent)",false)}</svg>
+    <div class="sm" style="display:flex;gap:16px;margin-top:8px">
+      <span><span style="display:inline-block;width:14px;height:2px;background:var(--accent);vertical-align:middle"></span> ${esc(labels[0])}</span>
+      <span class="muted"><span style="display:inline-block;width:14px;height:2px;background:#B9B8B2;vertical-align:middle"></span> ${esc(labels[1])}</span>
+      <span class="muted" style="margin-left:auto">최고 ${num(max)}</span></div>`;
+}
+
+function svgBar(data) {
+  if (!data.length) return `<div class="empty">표시할 채널이 없습니다.</div>`;
+  const max = Math.max(1, ...data.map(d => d.leads));
+  return `<div style="display:flex;flex-direction:column;gap:8px">` + data.map(d => `
+    <div><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+      <span>${esc(d.name)}</span><span class="muted">${num(d.leads)}</span></div>
+      <div class="bar-bg"><div class="bar-fg" style="width:${(d.leads/max*100).toFixed(1)}%;background:var(--ink)"></div></div>
+    </div>`).join("") + `</div>`;
+}
+
+function heatmap(rows) {
+  const m = new Map(); let max = 0;
+  rows.forEach(r => { const k = r.dow+"-"+r.hour; const v = (m.get(k)??0)+r.valid_leads; m.set(k,v); if(v>max) max=v; });
+  if (!max) return `<div class="empty">유입 시간 데이터가 없습니다.</div>`;
+  let h = `<div class="scroll"><div style="min-width:620px"><div style="display:flex"><div style="width:22px"></div>` +
+    Array.from({length:24},(_,i)=>`<div style="flex:1;text-align:center;font-size:10px;color:var(--muted);padding-bottom:3px">${i%3===0?i:""}</div>`).join("")+`</div>`;
+  DOW.forEach((lab,dw) => {
+    h += `<div style="display:flex;align-items:center"><div style="width:22px;font-size:11px;color:var(--muted)">${lab}</div>`;
+    for (let hr=0; hr<24; hr++) {
+      const v = m.get(dw+"-"+hr) ?? 0, a = v ? 0.12+(v/max)*0.78 : 0;
+      h += `<div style="flex:1;padding:1px"><div title="${lab} ${hr}시 · ${v}건" style="height:20px;border-radius:2px;background:${v?`rgba(31,79,216,${a.toFixed(2)})`:"#F2F2EE"}"></div></div>`;
+    }
+    h += `</div>`;
+  });
+  return h + `</div></div>`;
+}
+
+function toCsv(rows) {
+  if (!rows.length) return "";
+  const cols = Object.keys(rows[0]);
+  const e = (v) => { const s = v==null?"":String(v); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; };
+  return [cols.join(","), ...rows.map(r => cols.map(c => e(r[c])).join(","))].join("\n");
+}
+
+/* ---------- shell ---------- */
+const NAV = [
+  ["dashboard","대시보드"],["leads","DB 원장"],["costs","광고비"],["ads","광고 소재"],["contracts","계약"],
+  ["performance","성과분석"],["pnl","손익"],["data","자료관리"],["settings","설정"]
+];
+
+function shell() {
+  $("app").innerHTML = `<div class="wrap">
+    <aside class="side">
+      <div class="brand"><div class="k">MARKETING DB</div><div class="n">유입 성과 관리</div></div>
+      <nav class="nav" id="nav">${NAV.map(([k,v])=>`<button data-p="${k}"${S.page===k?' class="on"':""}>${v}</button>`).join("")}</nav>
+      <div class="foot">
+        <button class="btn" style="width:100%;margin-bottom:6px" id="rf">전체 새로고침</button>
+        <label class="sm muted" style="display:flex;align-items:center;gap:6px;margin-bottom:10px;cursor:pointer">
+          <input type="checkbox" id="ar"${S.autoRefresh?" checked":""}> 1분마다 자동 갱신</label>
+        <div class="em">${esc(S.user?.email ?? "")}${S.role==="owner"?' <span class="sm" style="color:var(--gA)">대표</span>':""}</div>
+        <button class="btn" style="width:100%" id="out">로그아웃</button></div>
+    </aside>
+    <main id="main"></main></div>`;
+  $("nav").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.page = b.dataset.p; S.sel.clear(); shell(); route(); };
+  $("out").onclick = () => sb.auth.signOut();
+  $("rf").onclick = () => hardRefresh();
+  $("ar").onchange = (e) => { S.autoRefresh = e.target.checked; setTimer(); };
+  setTimer();
+}
+
+let timer = null;
+function setTimer() {
+  if (timer) clearInterval(timer);
+  if (S.autoRefresh) timer = setInterval(() => { if (!document.hidden) route(); }, 60000);
+}
+
+async function hardRefresh() {
+  const b = $("rf"); if (b) { b.disabled = true; b.textContent = "갱신 중"; }
+  await loadMasters();
+  await route();
+  if (b) { b.disabled = false; b.textContent = "전체 새로고침"; }
+}
+
+function loginView() {
+  $("app").innerHTML = `<div class="login"><div class="box">
+    <div style="margin-bottom:28px"><div class="sm" style="letter-spacing:.18em;color:var(--muted)">MARKETING DB</div>
+      <h1 style="font-size:19px;font-weight:500;margin-top:4px">마케팅 DB 관리</h1></div>
+    <input class="inp" id="em" type="email" placeholder="이메일" style="margin-bottom:8px" autofocus>
+    <input class="inp" id="pw" type="password" placeholder="비밀번호" style="margin-bottom:8px">
+    <button class="btn-solid" id="go" style="width:100%">로그인</button>
+    <p class="msg err" id="lm"></p>
+    <p class="sm muted" style="margin-top:24px;line-height:1.6">계정은 Supabase 대시보드의 Authentication 메뉴에서 발급합니다. 비밀번호는 로그인 후 설정 &gt; 계정에서 변경할 수 있습니다.</p>
+  </div></div>`;
+  const go = async () => {
+    $("go").disabled = true; $("lm").textContent = "";
+    const { error } = await sb.auth.signInWithPassword({ email: $("em").value, password: $("pw").value });
+    if (error) $("lm").textContent = "로그인하지 못했습니다. 이메일과 비밀번호를 확인하세요.";
+    $("go").disabled = false;
+  };
+  $("go").onclick = go;
+  $("pw").onkeydown = (e) => { if (e.key === "Enter") go(); };
+}
+
+function configView() {
+  $("app").innerHTML = `<div class="login"><div class="box" style="max-width:460px">
+    <h1 style="font-size:18px;font-weight:500;margin-bottom:10px">설정이 필요합니다</h1>
+    <p class="muted" style="line-height:1.7">이 파일을 메모장으로 열어 위쪽 설정 부분의
+    <span class="mono">SUPABASE_URL</span> 과 <span class="mono">SUPABASE_ANON</span> 값을 채워주세요.</p>
+  </div></div>`;
+}
+
+/* ---------- masters ---------- */
+async function loadMasters() {
+  const [c,m,mo,cp,cr,me] = await Promise.all([
+    sb.from("channels").select("*").order("sort_order"),
+    sb.from("media").select("*").order("sort_order"),
+    sb.from("car_models").select("id,brand,model,segment").eq("is_active",true).order("brand"),
+    sb.from("campaigns").select("*").order("code"),
+    sb.from("creatives").select("*").order("code"),
+    sb.from("users").select("role").eq("id", S.user?.id ?? "").maybeSingle()
+  ]);
+  S.channels = c.data ?? []; S.media = m.data ?? []; S.models = mo.data ?? [];
+  S.camps = cp.data ?? []; S.creas = cr.data ?? [];
+  S.role = me.data?.role ?? "marketer";
+}
+const chName = (id) => S.channels.find(c => c.id === id)?.name ?? "-";
+const mdName = (id) => S.media.find(m => m.id === id)?.name ?? "";
+
+/* ============================================================
+   대시보드
+   ============================================================ */
+async function vDashboard() {
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">대시보드</h1>
+    <p class="sm muted" style="margin-top:4px">최근 ${S.days}일 기준</p></div>
+    <div class="seg" id="rng">${[7,30,90].map(n=>`<button data-n="${n}"${S.days===n?' class="on"':""}>${n}일</button>`).join("")}</div></div>
+    <div id="db" class="muted">불러오는 중</div>`;
+  $("rng").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.days = +b.dataset.n; vDashboard(); };
+
+  const [d,g,h] = await Promise.all([
+    sb.from("v_perf_daily").select("*").gte("d", daysAgo(S.days)).order("d"),
+    sb.from("v_channel_grade").select("*"),
+    sb.from("v_hour_heatmap").select("*")
+  ]);
+  const daily = d.data ?? [], grades = g.data ?? [], heat = h.data ?? [];
+
+  const t = daily.reduce((a,r)=>({
+    total:a.total+r.total_leads, valid:a.valid+r.valid_leads, dup:a.dup+r.dup_leads,
+    cost:a.cost+Number(r.cost), ct:a.ct+r.contracts, rev:a.rev+Number(r.revenue)
+  }), {total:0,valid:0,dup:0,cost:0,ct:0,rev:0});
+  const cpa = t.valid>0 && t.cost>0 ? t.cost/t.valid : null;
+  const cps = t.ct>0 && t.cost>0 ? t.cost/t.ct : null;
+  const dupRate = t.total>0 ? t.dup/t.total*100 : null;
+
+  const tm = new Map();
+  daily.forEach(r => { const c = tm.get(r.d) ?? {d:r.d,leads:0}; c.leads += r.valid_leads; tm.set(r.d,c); });
+  const trend = Array.from(tm.values()).sort((a,b)=>a.d.localeCompare(b.d));
+
+  const cm = new Map();
+  daily.forEach(r => { const c = cm.get(r.channel_code) ?? {name:r.channel_name,leads:0}; c.leads += r.valid_leads; cm.set(r.channel_code,c); });
+  const byCh = Array.from(cm.values()).sort((a,b)=>b.leads-a.leads);
+
+  const ranked = [...grades].sort((a,b)=>(b.score??-1)-(a.score??-1)||b.valid_leads-a.valid_leads);
+
+  $("db").innerHTML = `
+    <div class="grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:12px">
+      ${[["전체 DB",num(t.total),""],["유효 DB",num(t.valid),`중복 ${num(t.dup)}건 제외`],
+         ["중복률",pct(dupRate),""],["광고비",won(t.cost),""],
+         ["유효 CPA",won(cpa),"광고비 ÷ 유효DB"],["CPS",won(cps),`계약 ${num(t.ct)}건`]]
+        .map(([l,v,s])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div>${s?`<div class="sm muted" style="margin-top:4px">${s}</div>`:""}</div>`).join("")}
+    </div>
+    <section class="card p16" style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <h2 class="h2">채널 등급</h2><span class="sm muted">최근 30일 · 객단가 대비 유입량</span></div>
+      ${ranked.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+        ${ranked.map(g=>`<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+            <span style="font-size:13px;font-weight:500">${esc(g.name)}</span>${badge(g.grade)}</div>
+          <div class="sm" style="display:flex;justify-content:space-between"><span class="muted">유효 DB</span><span>${num(g.valid_leads)}</span></div>
+          <div class="sm" style="display:flex;justify-content:space-between;margin-top:3px"><span class="muted">CPA</span><span>${g.cpa?won(g.cpa):"-"}</span></div>
+          <div class="sm" style="display:flex;justify-content:space-between;margin-top:3px"><span class="muted">점수</span><span>${g.score ?? "-"}</span></div>
+          <div class="sm muted" style="border-top:1px solid var(--line);margin-top:9px;padding-top:8px">${g.grade?GL[g.grade]:"비용 없음 · 유입량만 비교"}</div>
+        </div>`).join("")}</div>` : `<div class="empty">아직 집계할 데이터가 없습니다. DB 원장에서 엑셀을 업로드하세요.</div>`}
+    </section>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일간 유효 DB 추이</h2>${svgLine(trend,"leads")}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">채널별 유입량</h2>${svgBar(byCh)}</section>
+    </div>
+    <section class="card p16">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
+        <h2 class="h2">요일 · 시간대 유입</h2><span class="sm muted">전체 기간 누적</span></div>
+      ${heatmap(heat)}
+    </section>`;
+}
+
+/* ============================================================
+   DB 원장
+   ============================================================ */
+const FIELDS = [
+  { k:"inflow_at", l:"유입일시", hint:["일시","날짜","유입","등록","생성","접수","시간","date","time","created","timestamp"] },
+  { k:"name",      l:"고객명",   hint:["이름","성명","고객","닉네임","성함","name"] },
+  { k:"phone",     l:"연락처",   hint:["연락처","전화","휴대","핸드폰","폰","번호","phone","mobile","tel"] },
+  { k:"region",    l:"지역",     hint:["지역","주소","거주","시도","region","city"] },
+  { k:"memo",      l:"메모",     hint:["메모","비고","문의","내용","요청","상담","memo","note","message"] }
+];
+function guessMap(headers) {
+  const m = {};
+  FIELDS.forEach(f => {
+    const hit = headers.findIndex(h => {
+      const t = String(h).toLowerCase().replace(/\s/g,"");
+      return f.hint.some(x => t.includes(x));
+    });
+    m[f.k] = hit >= 0 ? String(hit) : "";
+  });
+  return m;
+}
+const digits = (v) => String(v ?? "").replace(/[^0-9]/g,"");
+function parseWhen(v) {
+  if (v == null || v === "") return null;
+  if (v instanceof Date && !isNaN(v)) return v;
+  const d = new Date(String(v).trim().replace(/\./g,"-").replace(/\//g,"-"));
+  return isNaN(d) ? null : d;
+}
+
+async function vLeads() {
+  const TABS = ["목록","엑셀 업로드","중복 분석","업로드 이력"];
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">DB 원장</h1>
+    <p class="sm muted" style="margin-top:4px" id="lsub"></p></div></div>
+    <div class="seg" id="ltab" style="margin-bottom:16px">${TABS.map(t=>`<button data-t="${t}"${S.leadTab===t?' class="on"':""}>${t}</button>`).join("")}</div>
+    <div id="lbody" class="muted">불러오는 중</div>`;
+  $("ltab").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.leadTab = b.dataset.t; S.sel.clear(); vLeads(); };
+  if (S.leadTab === "목록") await leadList();
+  else if (S.leadTab === "엑셀 업로드") uploadView();
+  else if (S.leadTab === "중복 분석") await dupView();
+  else await batchView();
+}
+
+async function leadList() {
+  let q = sb.from("leads").select("*").order("inflow_at",{ascending:false}).limit(500);
+  if (S.leadFilter.ch) q = q.eq("channel_id", +S.leadFilter.ch);
+  if (S.leadFilter.st) q = q.eq("status", S.leadFilter.st);
+  const { data } = await q;
+  let rows = data ?? [];
+  const k = S.leadFilter.q.trim().toLowerCase();
+  if (k) rows = rows.filter(r => (r.name??"").toLowerCase().includes(k) || (r.phone??"").includes(k) || (r.lead_no??"").toLowerCase().includes(k));
+  $("lsub").textContent = `${num(rows.length)}건 표시 · 최근 500건`;
+
+  $("lbody").innerHTML = `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+      <input class="inp" id="fq" placeholder="이름·연락처·DB번호 검색" style="max-width:220px" value="${esc(S.leadFilter.q)}">
+      <select class="inp" id="fc" style="max-width:150px"><option value="">전체 채널</option>${opt(S.channels,S.leadFilter.ch,"id","name")}</select>
+      <select class="inp" id="fs" style="max-width:140px"><option value="">전체 상태</option>${opt(STATUS,S.leadFilter.st)}</select>
+    </div>
+    <div id="bulk" class="hide" style="border:1px solid var(--ink);border-radius:8px;padding:10px 14px;margin-bottom:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;background:#fff">
+      <span style="font-weight:500"><span id="bn">0</span>건 선택</span>
+      <select class="inp" id="bst" style="width:150px"><option value="">상태 변경</option>${opt(STATUS,"")}</select>
+      <select class="inp" id="bcr" style="width:150px"><option value="">심사 변경</option>${opt(CREDIT,"")}</select>
+      <button class="btn-solid" id="bgo">적용</button>
+      <button class="btn" id="bdel" style="color:var(--gD)">선택 삭제</button>
+      <button class="btn" id="bclr">선택 해제</button>
+      <span class="msg" id="bmsg"></span>
+    </div>
+    ${rows.length ? `<div class="card scroll"><table><thead><tr>
+      <th style="width:30px"><input type="checkbox" id="ckall"></th>
+      <th>DB 번호</th><th>유입일시</th><th>채널 · 매체</th><th>고객명</th><th>연락처</th><th>유형</th><th>상태</th><th>심사</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr class="${r.is_duplicate?"dup":""}">
+        <td><input type="checkbox" class="ck" value="${r.id}"></td>
+        <td style="font-weight:500">${esc(r.lead_no ?? "-")}${r.is_duplicate?' <span class="sm" style="color:var(--gC)">중복</span>':""}</td>
+        <td class="muted">${esc((r.inflow_at??"").slice(0,16).replace("T"," "))}</td>
+        <td>${esc(chName(r.channel_id))}${r.media_id?` <span class="muted">· ${esc(mdName(r.media_id))}</span>`:""}</td>
+        <td>${esc(r.name ?? "-")}</td><td>${esc(r.phone ?? "-")}</td><td class="muted">${esc(r.source_type)}</td>
+        <td><select class="sel-sm" data-id="${r.id}" data-f="status">${opt(STATUS,r.status)}</select></td>
+        <td><select class="sel-sm" data-id="${r.id}" data-f="credit_result">${opt(CREDIT,r.credit_result)}</select></td>
+      </tr>`).join("")}</tbody></table></div>`
+      : `<div class="card empty">등록된 DB가 없습니다. 엑셀 업로드 탭에서 파일을 올려주세요.</div>`}`;
+
+  $("fq").oninput = (e) => { S.leadFilter.q = e.target.value; clearTimeout(window._t); window._t = setTimeout(leadList,250); };
+  $("fc").onchange = (e) => { S.leadFilter.ch = e.target.value; leadList(); };
+  $("fs").onchange = (e) => { S.leadFilter.st = e.target.value; leadList(); };
+  $("lbody").querySelectorAll("select.sel-sm").forEach(sel => sel.onchange = async (e) => {
+    await sb.from("leads").update({ [sel.dataset.f]: e.target.value }).eq("id", sel.dataset.id);
+  });
+
+  const syncBulk = () => {
+    const n = S.sel.size;
+    $("bn").textContent = n;
+    $("bulk").classList.toggle("hide", n === 0);
+  };
+  $("lbody").querySelectorAll("input.ck").forEach(cb => cb.onchange = () => {
+    cb.checked ? S.sel.add(cb.value) : S.sel.delete(cb.value);
+    syncBulk();
+  });
+  if ($("ckall")) $("ckall").onchange = (e) => {
+    $("lbody").querySelectorAll("input.ck").forEach(cb => { cb.checked = e.target.checked; cb.checked ? S.sel.add(cb.value) : S.sel.delete(cb.value); });
+    syncBulk();
+  };
+  if ($("bclr")) $("bclr").onclick = () => { S.sel.clear(); leadList(); };
+  if ($("bgo")) $("bgo").onclick = async () => {
+    const p = {}; if ($("bst").value) p.status = $("bst").value; if ($("bcr").value) p.credit_result = $("bcr").value;
+    const m = $("bmsg");
+    if (!Object.keys(p).length) { m.className="msg err"; m.textContent="변경할 항목을 선택하세요."; return; }
+    m.className="msg"; m.textContent="적용 중";
+    const ids = Array.from(S.sel);
+    for (let i=0;i<ids.length;i+=200) await sb.from("leads").update(p).in("id", ids.slice(i,i+200));
+    S.sel.clear(); leadList();
+  };
+  if ($("bdel")) $("bdel").onclick = async () => {
+    const m = $("bmsg");
+    if (!confirm(`${S.sel.size}건을 삭제합니다. 되돌릴 수 없습니다. 진행할까요?`)) return;
+    m.className="msg"; m.textContent="삭제 중";
+    const ids = Array.from(S.sel);
+    for (let i=0;i<ids.length;i+=200) await sb.from("leads").delete().in("id", ids.slice(i,i+200));
+    S.sel.clear(); leadList();
+  };
+  syncBulk();
+}
+
+function uploadView() {
+  $("lsub").textContent = "채널별 추출 파일을 올리면 필요한 항목만 자동으로 정리됩니다";
+  const U = S.up;
+  $("lbody").innerHTML = `
+    <section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:12px">1. 채널 선택 후 파일 올리기</h2>
+      <div class="grid" style="grid-template-columns:1fr 1fr 1.4fr">
+        <label class="f"><span class="lbl">채널</span><select class="inp" id="u_ch"><option value="">선택</option>
+          ${opt(S.channels.filter(c=>c.is_active),U.channel_id,"id","name")}</select></label>
+        <label class="f"><span class="lbl">매체</span><select class="inp" id="u_md"><option value="">선택</option></select></label>
+        <label class="f"><span class="lbl">파일 (xlsx · xls · csv)</span>
+          <input class="inp" type="file" id="u_file" accept=".xlsx,.xls,.csv" style="padding:6px 8px"></label>
+      </div>
+      <span class="msg" id="u_msg"></span>
+    </section>
+    <div id="u_step2"></div><div id="u_step3"></div>`;
+  const fillMedia = () => {
+    const ms = S.media.filter(m => String(m.channel_id) === $("u_ch").value && m.is_active);
+    $("u_md").innerHTML = `<option value="">선택</option>` + opt(ms,U.media_id,"id","name");
+  };
+  if (U.channel_id) fillMedia();
+  $("u_ch").onchange = () => { U.channel_id = $("u_ch").value; U.media_id=""; fillMedia(); };
+  $("u_md").onchange = () => { U.media_id = $("u_md").value; };
+  $("u_file").onchange = (e) => readFile(e.target.files[0]);
+  if (U.rows.length) renderMap();
+}
+
+async function readFile(file) {
+  if (!file) return;
+  const m = $("u_msg");
+  if (!$("u_ch").value) { m.className="msg err"; m.textContent="채널을 먼저 선택하세요."; $("u_file").value=""; return; }
+  m.className="msg"; m.textContent="파일을 읽는 중";
+  try {
+    const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
+    const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true });
+    const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+    if (aoa.length < 2) { m.className="msg err"; m.textContent="데이터가 없는 파일입니다."; return; }
+    let hi = 0;
+    for (let i=0;i<Math.min(aoa.length,10);i++) if (aoa[i].filter(x=>String(x).trim()).length >= 2) { hi = i; break; }
+    S.up.file = file.name;
+    S.up.headers = aoa[hi].map(x => String(x).trim());
+    S.up.rows = aoa.slice(hi+1).filter(r => r.some(x => String(x).trim() !== ""));
+    S.up.map = guessMap(S.up.headers);
+    S.up.check = null;
+    m.className="msg"; m.textContent = `${file.name} · ${num(S.up.rows.length)}행 인식`;
+    renderMap();
+  } catch (err) { m.className="msg err"; m.textContent = "파일을 읽지 못했습니다: " + err.message; }
+}
+
+function renderMap() {
+  const U = S.up;
+  const hopt = (sel) => `<option value="">사용 안 함</option>` +
+    U.headers.map((h,i)=>`<option value="${i}"${String(i)===String(sel)?" selected":""}>${esc(h || "("+(i+1)+"번째 열)")}</option>`).join("");
+  $("u_step2").innerHTML = `<section class="card p16" style="margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+      <h2 class="h2">2. 항목 연결</h2><span class="sm muted">${esc(U.file)} · ${num(U.rows.length)}행</span></div>
+    <p class="sm muted" style="margin-bottom:12px">자동으로 맞춰뒀습니다. 잘못된 것만 바꿔주세요. 연락처는 필수입니다.</p>
+    <div class="grid" style="grid-template-columns:repeat(5,1fr)">
+      ${FIELDS.map(f=>`<label class="f"><span class="lbl">${f.l}${f.k==="phone"?' <span style="color:var(--gD)">*</span>':""}</span>
+        <select class="inp" data-fk="${f.k}">${hopt(U.map[f.k])}</select></label>`).join("")}
+    </div>
+    <div class="scroll" style="margin-top:16px;border:1px solid var(--line);border-radius:6px">
+      <table><thead><tr>${U.headers.map(h=>`<th>${esc(h)}</th>`).join("")}</tr></thead>
+      <tbody>${U.rows.slice(0,5).map(r=>`<tr>${U.headers.map((_,i)=>`<td class="muted">${esc(String(r[i]??"").slice(0,24))}</td>`).join("")}</tr>`).join("")}</tbody></table>
+    </div>
+    <button class="btn-solid" id="u_check" style="margin-top:16px">중복 검사</button>
+    <span class="msg" id="u_cmsg"></span></section>`;
+  $("u_step2").querySelectorAll("select[data-fk]").forEach(sel => sel.onchange = () => { U.map[sel.dataset.fk]=sel.value; U.check=null; $("u_step3").innerHTML=""; });
+  $("u_check").onclick = runCheck;
+  if (U.check) renderCheck();
+}
+
+async function runCheck() {
+  const U = S.up, m = $("u_cmsg");
+  if (U.map.phone === "") { m.className="msg err"; m.textContent="연락처 항목을 연결하세요."; return; }
+  m.className="msg"; m.textContent="검사 중";
+  const pi = +U.map.phone;
+  const parsed = U.rows.map((r,idx)=>({
+    idx, phone: String(r[pi] ?? "").trim(), pn: digits(r[pi]),
+    name: U.map.name !== "" ? String(r[+U.map.name] ?? "").trim() : "",
+    region: U.map.region !== "" ? String(r[+U.map.region] ?? "").trim() : "",
+    memo: U.map.memo !== "" ? String(r[+U.map.memo] ?? "").trim() : "",
+    when: U.map.inflow_at !== "" ? parseWhen(r[+U.map.inflow_at]) : null
+  })).filter(x => x.pn.length >= 8);
+
+  const seen = new Map(), inFile = [];
+  parsed.forEach(x => { if (seen.has(x.pn)) inFile.push(x); else seen.set(x.pn, x); });
+
+  const uniq = Array.from(seen.keys()), found = [];
+  for (let i=0;i<uniq.length;i+=200) {
+    const { data } = await sb.from("leads")
+      .select("id,lead_no,inflow_at,channel_id,media_id,name,phone_norm,status")
+      .in("phone_norm", uniq.slice(i,i+200));
+    (data ?? []).forEach(d => found.push(d));
+  }
+  const exist = new Map();
+  found.forEach(d => { const p = exist.get(d.phone_norm); if (!p || d.inflow_at < p.inflow_at) exist.set(d.phone_norm, d); });
+
+  U.check = { total:U.rows.length, valid:parsed.length, skipped:U.rows.length-parsed.length,
+    inFile, exist, parsed,
+    newCount: uniq.filter(p=>!exist.has(p)).length,
+    dupCount: uniq.filter(p=>exist.has(p)).length };
+  m.textContent = "";
+  renderCheck();
+}
+
+function renderCheck() {
+  const U = S.up, C = U.check;
+  const dupRows = C.parsed.filter(x => C.exist.has(x.pn) && !C.inFile.includes(x));
+  const byCh = new Map();
+  dupRows.forEach(x => { const e = C.exist.get(x.pn); byCh.set(e.channel_id, (byCh.get(e.channel_id)??0)+1); });
+  const alert = C.dupCount > 0 || C.inFile.length > 0;
+
+  $("u_step3").innerHTML = `<section class="card p16">
+    <h2 class="h2" style="margin-bottom:12px">3. 검사 결과</h2>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:16px">
+      ${[["전체 행",C.total,0],["신규 DB",C.newCount,0],["기존 중복",C.dupCount,1],["파일 내 중복",C.inFile.length,1]]
+        .map(([l,v,w])=>`<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
+          <div class="lbl">${l}</div><div style="font-size:20px;font-weight:500;margin-top:4px;${w&&v>0?"color:var(--gC)":""}">${num(v)}</div></div>`).join("")}
+    </div>
+    ${C.skipped>0?`<p class="sm" style="color:var(--gC);margin-bottom:12px">연락처가 없거나 형식이 맞지 않는 ${num(C.skipped)}행은 제외됩니다.</p>`:""}
+    ${alert?`<div style="border:1px solid var(--gC);background:rgba(180,116,14,.06);border-radius:6px;padding:14px;margin-bottom:16px">
+      <div style="font-weight:500;color:var(--gC);margin-bottom:6px">중복 ${num(C.dupCount+C.inFile.length)}건이 발견되었습니다</div>
+      <div class="sm" style="line-height:1.7">
+        ${byCh.size?`기존 유입 경로: `+Array.from(byCh.entries()).sort((a,b)=>b[1]-a[1]).map(([cid,n])=>`<b>${esc(chName(cid))}</b> ${n}건`).join(" · "):""}
+        ${C.inFile.length?`<br>이번 파일 안에서만 중복된 건 ${num(C.inFile.length)}건`:""}
+      </div></div>`:`<p class="sm muted" style="margin-bottom:16px">중복 없이 모두 신규입니다.</p>`}
+    ${dupRows.length?`<div class="scroll" style="border:1px solid var(--line);border-radius:6px;margin-bottom:16px;max-height:300px;overflow-y:auto">
+      <table><thead><tr><th>고객명</th><th>연락처</th><th>기존 DB번호</th><th>기존 유입 채널</th><th>기존 유입일</th><th>기존 상태</th></tr></thead>
+      <tbody>${dupRows.slice(0,200).map(x=>{const e=C.exist.get(x.pn);return `<tr>
+        <td>${esc(x.name||e.name||"-")}</td><td>${esc(x.phone)}</td><td class="mono muted">${esc(e.lead_no??"-")}</td>
+        <td>${esc(chName(e.channel_id))}${e.media_id?` <span class="muted">· ${esc(mdName(e.media_id))}</span>`:""}</td>
+        <td class="muted">${esc((e.inflow_at??"").slice(0,10))}</td><td class="muted">${esc(e.status)}</td></tr>`;}).join("")}
+      </tbody></table>${dupRows.length>200?`<div class="sm muted p16">외 ${num(dupRows.length-200)}건</div>`:""}</div>`:""}
+    <div style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+      <label class="sm" style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="u_skip"> 중복 건은 저장하지 않기</label>
+      <label class="f" style="width:150px;margin:0"><select class="inp" id="u_src">${opt(SOURCE,"신규")}</select></label>
+      <button class="btn-solid" id="u_save">저장하기</button>
+      <span class="msg" id="u_smsg"></span>
+    </div>
+    <p class="sm muted" style="margin-top:12px">기본값은 중복도 함께 저장하고 표시만 남기는 방식입니다. 저장 후 업로드 이력 탭에서 통째로 되돌릴 수 있습니다.</p>
+  </section>`;
+  $("u_save").onclick = saveUpload;
+}
+
+async function saveUpload() {
+  const U = S.up, C = U.check, m = $("u_smsg");
+  const skip = $("u_skip").checked, src = $("u_src").value;
+  const chId = +$("u_ch").value, mdId = $("u_md").value ? +$("u_md").value : null;
+  if (!chId) { m.className="msg err"; m.textContent="채널을 선택하세요."; return; }
+  let list = C.parsed;
+  if (skip) { const used = new Set();
+    list = list.filter(x => { if (C.exist.has(x.pn)||used.has(x.pn)) return false; used.add(x.pn); return true; }); }
+  if (!list.length) { m.className="msg err"; m.textContent="저장할 건이 없습니다."; return; }
+
+  $("u_save").disabled = true; m.className="msg"; m.textContent="저장 중";
+  const { data: batch } = await sb.from("import_batches").insert({
+    type:"lead", file_name:U.file, row_count:list.length,
+    uploaded_by:S.user?.id ?? null, channel_id:chId, media_id:mdId
+  }).select("id").single();
+
+  const payload = list.map(x => ({
+    inflow_at: (x.when ?? new Date()).toISOString(),
+    channel_id: chId, media_id: mdId,
+    name: x.name || null, phone: x.phone || null,
+    region: x.region || null, memo: x.memo || null,
+    source_type: src, import_batch_id: batch?.id ?? null
+  }));
+
+  let ok=0, fail=0, lastErr="";
+  for (let i=0;i<payload.length;i+=200) {
+    const { error } = await sb.from("leads").insert(payload.slice(i,i+200));
+    if (error) { fail += Math.min(200, payload.length-i); lastErr = error.message; }
+    else ok += Math.min(200, payload.length-i);
+  }
+  $("u_save").disabled = false;
+  if (fail) { m.className="msg err"; m.textContent=`${num(ok)}건 저장, ${num(fail)}건 실패: ${lastErr}`; return; }
+  m.className="msg"; m.textContent=`${num(ok)}건을 저장했습니다. 화면을 갱신합니다.`;
+  S.up = { channel_id:String(chId), media_id: mdId?String(mdId):"", file:"", headers:[], rows:[], map:{}, check:null };
+  setTimeout(() => { S.leadTab = "목록"; hardRefresh(); }, 900);
+}
+
+async function dupView() {
+  $("lsub").textContent = "어느 채널에서 중복 유입이 발생했는지 확인합니다";
+  const { data } = await sb.from("leads")
+    .select("id,lead_no,inflow_at,channel_id,media_id,name,phone,duplicate_of")
+    .eq("is_duplicate", true).order("inflow_at",{ascending:false}).limit(1000);
+  const dups = data ?? [];
+  if (!dups.length) { $("lbody").innerHTML = `<div class="card empty">중복으로 표시된 DB가 없습니다.</div>`; return; }
+
+  const ids = Array.from(new Set(dups.map(d=>d.duplicate_of).filter(Boolean)));
+  const orig = new Map();
+  for (let i=0;i<ids.length;i+=200) {
+    const { data:o } = await sb.from("leads").select("id,lead_no,inflow_at,channel_id,media_id,status").in("id", ids.slice(i,i+200));
+    (o ?? []).forEach(x => orig.set(x.id,x));
+  }
+  const cross = new Map();
+  dups.forEach(d => { const o = orig.get(d.duplicate_of); if (!o) return;
+    const k = o.channel_id+">"+d.channel_id; cross.set(k,(cross.get(k)??0)+1); });
+  const rows = Array.from(cross.entries()).map(([k,v])=>{const [a,b]=k.split(">").map(Number);return {from:a,to:b,n:v};}).sort((a,b)=>b.n-a.n);
+  const { data: dr } = await sb.from("v_duplicate").select("*");
+
+  $("lbody").innerHTML = `
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">채널별 중복률</h2>
+        ${(dr??[]).length?`<table><thead><tr><th>채널</th><th>전체</th><th>중복</th><th>중복률</th></tr></thead>
+          <tbody>${(dr??[]).sort((a,b)=>(b.dup_rate??0)-(a.dup_rate??0)).map(x=>`<tr>
+            <td>${esc(chName(x.channel_id))}</td><td>${num(x.total_leads)}</td><td>${num(x.dup_leads)}</td>
+            <td style="font-weight:500;${(x.dup_rate??0)>=20?"color:var(--gD)":""}">${pct(x.dup_rate)}</td></tr>`).join("")}
+          </tbody></table>`:`<div class="empty">데이터가 없습니다.</div>`}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:4px">중복 유입 경로</h2>
+        <p class="sm muted" style="margin-bottom:12px">먼저 들어온 채널 → 나중에 다시 들어온 채널</p>
+        ${rows.length?`<table><thead><tr><th>최초 유입</th><th></th><th>재유입</th><th>건수</th></tr></thead>
+          <tbody>${rows.map(r=>`<tr><td>${esc(chName(r.from))}</td><td class="muted">→</td>
+            <td>${esc(chName(r.to))}</td><td style="font-weight:500">${num(r.n)}</td></tr>`).join("")}</tbody></table>`
+          :`<div class="empty">분석할 중복이 없습니다.</div>`}</section>
+    </div>
+    <div class="card scroll">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">중복 건 목록 <span class="sm muted">${num(dups.length)}건</span></h2></div>
+      <table><thead><tr><th>DB 번호</th><th>고객명</th><th>연락처</th><th>이번 유입</th><th>유입일</th>
+        <th>최초 DB번호</th><th>최초 채널</th><th>최초 유입일</th><th>최초 상태</th></tr></thead>
+      <tbody>${dups.map(d=>{const o=orig.get(d.duplicate_of);return `<tr class="dup">
+        <td class="mono">${esc(d.lead_no??"-")}</td><td>${esc(d.name??"-")}</td><td>${esc(d.phone??"-")}</td>
+        <td>${esc(chName(d.channel_id))}${d.media_id?` <span class="muted">· ${esc(mdName(d.media_id))}</span>`:""}</td>
+        <td class="muted">${esc((d.inflow_at??"").slice(0,10))}</td>
+        <td class="mono muted">${esc(o?.lead_no??"-")}</td><td>${o?esc(chName(o.channel_id)):"-"}</td>
+        <td class="muted">${esc((o?.inflow_at??"").slice(0,10))}</td><td class="muted">${esc(o?.status??"-")}</td></tr>`;}).join("")}
+      </tbody></table></div>`;
+}
+
+async function batchView() {
+  $("lsub").textContent = "업로드한 파일 단위로 통째로 되돌릴 수 있습니다";
+  const { data } = await sb.from("v_import_batches").select("*").eq("type","lead").limit(100);
+  const rows = data ?? [];
+  $("lbody").innerHTML = rows.length ? `<div class="card scroll"><table><thead><tr>
+    <th>업로드 일시</th><th>파일명</th><th>채널 · 매체</th><th>올린 건수</th><th>남은 건수</th><th>상태</th><th></th></tr></thead>
+    <tbody>${rows.map(b=>`<tr>
+      <td class="muted">${esc((b.created_at??"").slice(0,16).replace("T"," "))}</td>
+      <td style="font-weight:500">${esc(b.file_name??"-")}</td>
+      <td>${esc(chName(b.channel_id))}${b.media_id?` <span class="muted">· ${esc(mdName(b.media_id))}</span>`:""}</td>
+      <td>${num(b.row_count)}</td><td>${num(b.live_count)}</td>
+      <td>${b.reverted_at?`<span class="sm muted">되돌림</span>`:b.live_count>0?`<span class="sm" style="color:var(--gA)">사용 중</span>`:`<span class="sm muted">비어 있음</span>`}</td>
+      <td>${b.live_count>0?`<button class="btn" data-rv="${b.id}" data-n="${b.live_count}" style="height:28px;color:var(--gD)">되돌리기</button>`:""}</td>
+    </tr>`).join("")}</tbody></table></div>
+    <p class="sm muted" style="margin-top:12px">되돌리기는 해당 파일로 올린 DB만 삭제합니다. 이후 수동으로 수정한 내용도 함께 사라집니다.</p>`
+    : `<div class="card empty">업로드 이력이 없습니다.</div>`;
+
+  $("lbody").querySelectorAll("button[data-rv]").forEach(b => b.onclick = async () => {
+    if (!confirm(`이 파일로 올린 ${b.dataset.n}건을 삭제합니다. 되돌릴 수 없습니다. 진행할까요?`)) return;
+    b.disabled = true; b.textContent = "삭제 중";
+    await sb.from("leads").delete().eq("import_batch_id", b.dataset.rv);
+    await sb.from("import_batches").update({ reverted_at: new Date().toISOString() }).eq("id", b.dataset.rv);
+    batchView();
+  });
+}
+
+/* ============================================================
+   광고비
+   ============================================================ */
+async function vCosts() {
+  const { data } = await sb.from("ad_costs").select("*").gte("cost_date", daysAgo(60))
+    .order("cost_date",{ascending:false}).limit(300);
+  const rows = data ?? [];
+  const total = rows.reduce((a,r)=>a+Number(r.cost),0);
+
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">광고비</h1>
+    <p class="sm muted" style="margin-top:4px">최근 60일 · 합계 ${won(total)}</p></div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">한 건 입력</h2>
+        <div class="grid" style="grid-template-columns:1fr 1fr">
+          <label class="f"><span class="lbl">일자</span><input class="inp" type="date" id="c_dt" value="${ymd(new Date())}"></label>
+          <label class="f"><span class="lbl">채널</span><select class="inp" id="c_ch"><option value="">선택</option>${opt(S.channels.filter(c=>c.is_active),"","id","name")}</select></label>
+          <label class="f"><span class="lbl">매체</span><select class="inp" id="c_md"><option value="">선택</option></select></label>
+          <label class="f"><span class="lbl">캠페인</span><select class="inp" id="c_cp"><option value="">선택 안 함</option>
+            ${S.camps.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+          <label class="f"><span class="lbl">소재</span><select class="inp" id="c_cr"><option value="">선택 안 함</option>
+            ${S.creas.map(c=>`<option value="${c.id}">${esc(c.title)}</option>`).join("")}</select></label>
+          <label class="f"><span class="lbl">광고비</span><input class="inp" id="c_cs" inputmode="numeric"></label>
+          <label class="f"><span class="lbl">노출수</span><input class="inp" id="c_im" inputmode="numeric"></label>
+          <label class="f"><span class="lbl">클릭수</span><input class="inp" id="c_ck" inputmode="numeric"></label>
+        </div>
+        <button class="btn-solid" id="c_save" style="margin-top:16px">저장</button>
+        <span class="msg" id="c_msg"></span></section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:4px">대행사 리포트 붙여넣기</h2>
+        <p class="sm muted" style="margin-bottom:12px">한 줄에 <b>일자, 매체코드, 광고비, 노출수, 클릭수</b> 순서.</p>
+        <textarea class="inp mono" id="c_paste" rows="7" placeholder="2026-07-26&#9;IG-REEL&#9;180000&#9;42000&#9;610"></textarea>
+        <button class="btn-solid" id="c_load" style="margin-top:12px">불러오기</button>
+        <span class="msg" id="c_pmsg"></span></section>
+    </div>
+    ${rows.length?`<div class="card scroll"><table><thead><tr>
+      <th>일자</th><th>채널 · 매체</th><th>캠페인</th><th>노출</th><th>클릭</th><th>광고비</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${esc(r.cost_date)}</td>
+        <td>${esc(chName(r.channel_id))}${r.media_id?` <span class="muted">· ${esc(mdName(r.media_id))}</span>`:""}</td>
+        <td class="muted">${esc(S.camps.find(c=>c.id===r.campaign_id)?.name ?? "-")}</td>
+        <td class="muted">${num(r.impressions)}</td><td class="muted">${num(r.clicks)}</td>
+        <td style="font-weight:500">${won(r.cost)}</td>
+        <td><button class="btn" data-del="${r.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td></tr>`).join("")}
+      </tbody></table></div>`:`<div class="card empty">등록된 광고비가 없습니다.</div>`}`;
+
+  $("c_ch").onchange = (e) => {
+    const ms = S.media.filter(m => String(m.channel_id)===e.target.value && m.is_active);
+    $("c_md").innerHTML = `<option value="">선택</option>` + opt(ms,"","id","name");
+  };
+  const conflict = "cost_date,channel_id,media_id,campaign_id,creative_id";
+  $("c_save").onclick = async () => {
+    const m = $("c_msg");
+    if (!$("c_ch").value) { m.className="msg err"; m.textContent="채널을 선택하세요."; return; }
+    $("c_save").disabled = true;
+    const { error } = await sb.from("ad_costs").upsert({
+      cost_date:$("c_dt").value, channel_id:+$("c_ch").value,
+      media_id:$("c_md").value?+$("c_md").value:null,
+      campaign_id:$("c_cp").value?+$("c_cp").value:null,
+      creative_id:$("c_cr").value?+$("c_cr").value:null,
+      impressions:+($("c_im").value||0), clicks:+($("c_ck").value||0), cost:+($("c_cs").value||0)
+    },{ onConflict:conflict });
+    $("c_save").disabled = false;
+    if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+    vCosts();
+  };
+  $("c_load").onclick = async () => {
+    const lines = $("c_paste").value.split("\n").map(l=>l.trim()).filter(Boolean);
+    const m = $("c_pmsg");
+    if (!lines.length) { m.className="msg err"; m.textContent="붙여넣을 내용이 없습니다."; return; }
+    const byCode = new Map(S.media.map(x=>[x.code.toUpperCase(),x]));
+    const byName = new Map(S.media.map(x=>[x.name,x]));
+    const payload = []; let bad = 0;
+    for (const line of lines) {
+      const c = line.split(/\t|,/).map(x=>x.trim());
+      if (c.length < 3) { bad++; continue; }
+      const [date,key,cost,imp,clk] = c;
+      const md = byCode.get(String(key).toUpperCase()) ?? byName.get(key);
+      if (!md || !/^\d{4}-\d{2}-\d{2}$/.test(date)) { bad++; continue; }
+      payload.push({ cost_date:date, channel_id:md.channel_id, media_id:md.id,
+        cost:+(String(cost).replace(/[^0-9.]/g,"")||0),
+        impressions:+(String(imp??"").replace(/[^0-9]/g,"")||0),
+        clicks:+(String(clk??"").replace(/[^0-9]/g,"")||0) });
+    }
+    if (!payload.length) { m.className="msg err"; m.textContent=`인식된 행이 없습니다. (${bad}행 실패)`; return; }
+    $("c_load").disabled = true;
+    const { error } = await sb.from("ad_costs").upsert(payload,{ onConflict:conflict });
+    $("c_load").disabled = false;
+    if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+    vCosts();
+  };
+  $("main").querySelectorAll("button[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("이 광고비 기록을 삭제할까요?")) return;
+    await sb.from("ad_costs").delete().eq("id", +b.dataset.del); vCosts();
+  });
+}
+
+/* ============================================================
+   광고 소재 관리 (META)
+   ============================================================ */
+const BUCKET = "ad-assets";
+const BUDGET_STEP = 5000;
+
+const fileUrl = (path) => DEMO ? path
+  : `${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${path}`;
+
+const monthRange = (offset) => {
+  const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() + offset);
+  const from = ymd(d);
+  const e = new Date(d); e.setMonth(e.getMonth()+1); e.setDate(0);
+  return [from, ymd(e)];
+};
+
+function stars(n, id) {
+  return `<span class="stars" data-star-for="${id}">` +
+    [1,2,3,4,5].map(i => `<button type="button" class="star${i<=n?" on":""}" data-v="${i}"
+      title="${i}점" aria-label="${i}점">★</button>`).join("") +
+    `<button type="button" class="star-clr" data-v="0" title="해제">×</button></span>`;
+}
+
+async function vAds() {
+  const F = S.ads;
+  $("main").innerHTML = `<div class="head">
+      <div><h1 class="h1">광고 소재</h1><p class="sm muted" style="margin-top:4px" id="asub"></p></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="seg" id="a_view">
+          <button data-v="리스트"${F.view==="리스트"?' class="on"':""}>리스트형</button>
+          <button data-v="폴더"${F.view==="폴더"?' class="on"':""}>폴더형</button>
+        </div>
+        <button class="btn-solid" id="a_new">소재 추가</button>
+      </div></div>
+    <div class="seg" id="a_ch" style="margin-bottom:12px">
+      ${S.channels.filter(c=>c.is_active).map(c=>`<button data-c="${c.id}"${String(F.channel_id)===String(c.id)?' class="on"':""}>${esc(c.name)}</button>`).join("")}
+    </div>
+    <div id="a_filter"></div>
+    <div id="a_body" class="muted">불러오는 중</div>`;
+
+  $("a_view").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; F.view=b.dataset.v; vAds(); };
+  $("a_ch").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; F.channel_id=+b.dataset.c; vAds(); };
+  $("a_new").onclick = () => openAdForm(null);
+
+  renderAdFilter();
+  await loadAds();
+}
+
+function renderAdFilter() {
+  const F = S.ads;
+  $("a_filter").innerHTML = `<section class="card p16" style="margin-bottom:12px">
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end">
+      <div class="seg" id="a_per">
+        ${[["이번달","이번달"],["저번달","저번달"],["전체","전체"],["직접","직접 설정"]]
+          .map(([v,l])=>`<button data-p="${v}"${F.period===v?' class="on"':""}>${l}</button>`).join("")}
+      </div>
+      <label class="f" style="width:150px"><span class="lbl">시작일</span>
+        <input class="inp" type="date" id="a_from" value="${F.from}"${F.period!=="직접"?" disabled":""}></label>
+      <label class="f" style="width:150px"><span class="lbl">종료일</span>
+        <input class="inp" type="date" id="a_to" value="${F.to}"${F.period!=="직접"?" disabled":""}></label>
+      <label class="f" style="width:130px"><span class="lbl">별점</span>
+        <select class="inp" id="a_rt">${opt([["","전체"],["5","★5"],["4","★4 이상"],["3","★3 이상"],["2","★2 이상"],["1","★1 이상"],["0","미평가"]].map(x=>({v:x[0],l:x[1]})),F.rating,"v","l")}</select></label>
+      <label class="f" style="width:160px"><span class="lbl">일 예산</span>
+        <select class="inp" id="a_bd">${opt([["","전체"],["0","미설정"],["1-10000","1만원 이하"],["10000-30000","1~3만원"],["30000-50000","3~5만원"],["50000-","5만원 이상"]].map(x=>({v:x[0],l:x[1]})),F.budget,"v","l")}</select></label>
+      <label class="f" style="width:110px"><span class="lbl">상태</span>
+        <select class="inp" id="a_st">${opt([["","전체"],["on","ON"],["off","OFF"]].map(x=>({v:x[0],l:x[1]})),F.onoff,"v","l")}</select></label>
+      <label class="f" style="width:150px"><span class="lbl">게시일 정렬</span>
+        <select class="inp" id="a_sort">${opt([["desc","최신순"],["asc","오래된순"]].map(x=>({v:x[0],l:x[1]})),F.sort,"v","l")}</select></label>
+      <input class="inp" id="a_q" placeholder="제목·본문 검색" style="width:180px" value="${esc(F.q)}">
+      <button class="btn" id="a_reset">초기화</button>
+    </div></section>`;
+
+  $("a_per").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    F.period = b.dataset.p;
+    if (F.period === "이번달") [F.from,F.to] = monthRange(0);
+    else if (F.period === "저번달") [F.from,F.to] = monthRange(-1);
+    else if (F.period === "전체") { F.from=""; F.to=""; }
+    renderAdFilter(); loadAds();
+  };
+  $("a_from").onchange = (e) => { F.from = e.target.value; loadAds(); };
+  $("a_to").onchange  = (e) => { F.to  = e.target.value; loadAds(); };
+  $("a_rt").onchange  = (e) => { F.rating = e.target.value; loadAds(); };
+  $("a_bd").onchange  = (e) => { F.budget = e.target.value; loadAds(); };
+  $("a_st").onchange  = (e) => { F.onoff = e.target.value; loadAds(); };
+  $("a_sort").onchange= (e) => { F.sort = e.target.value; loadAds(); };
+  $("a_q").oninput = (e) => { F.q = e.target.value; clearTimeout(window._aq); window._aq = setTimeout(loadAds, 250); };
+  $("a_reset").onclick = () => {
+    S.ads = { ...S.ads, period:"이번달", rating:"", budget:"", onoff:"", sort:"desc", q:"" };
+    [S.ads.from, S.ads.to] = monthRange(0);
+    renderAdFilter(); loadAds();
+  };
+}
+
+async function loadAds() {
+  const F = S.ads;
+  let q = sb.from("ad_creatives").select("*").eq("channel_id", F.channel_id);
+  if (F.from) q = q.gte("published_on", F.from);
+  if (F.to)   q = q.lte("published_on", F.to);
+  if (F.onoff) q = q.eq("is_on", F.onoff === "on");
+  const { data } = await q.order("published_on", { ascending: F.sort === "asc" }).limit(500);
+  let rows = data ?? [];
+
+  if (F.rating !== "") {
+    const r = +F.rating;
+    rows = r === 0 ? rows.filter(x=>x.rating===0)
+         : r === 5 ? rows.filter(x=>x.rating===5)
+         : rows.filter(x=>x.rating>=r);
+  }
+  if (F.budget) {
+    const [a,b] = F.budget.split("-");
+    rows = rows.filter(x => {
+      const v = x.daily_budget ?? 0;
+      if (F.budget === "0") return v === 0;
+      if (b === "") return v >= +a;
+      return v >= +a && v <= +b;
+    });
+  }
+  if (F.q.trim()) {
+    const k = F.q.trim().toLowerCase();
+    rows = rows.filter(x => (x.title??"").toLowerCase().includes(k) || (x.body??"").toLowerCase().includes(k));
+  }
+  rows.sort((a,b) => {
+    const av = a.published_on ?? "", bv = b.published_on ?? "";
+    return F.sort === "asc" ? av.localeCompare(bv) : bv.localeCompare(av);
+  });
+
+  const on = rows.filter(x=>x.is_on).length;
+  const bud = rows.filter(x=>x.is_on).reduce((a,x)=>a+(x.daily_budget??0),0);
+  $("asub").textContent = `${num(rows.length)}건 · 운영 중 ${num(on)}건 · 일 예산 합계 ${won(bud)}`;
+
+  $("a_body").innerHTML = rows.length
+    ? (F.view === "폴더" ? folderView(rows) : listView(rows))
+    : `<div class="card empty">해당 조건의 소재가 없습니다. 오른쪽 위 소재 추가로 등록하세요.</div>`;
+  bindAdRows();
+}
+
+function thumb(f, big) {
+  const h = big ? 150 : 88;
+  if (!f) return `<div class="ph" style="height:${h}px">파일 없음</div>`;
+  const u = fileUrl(f.path);
+  return (f.type ?? "").startsWith("video")
+    ? `<video src="${esc(u)}" style="width:100%;height:${h}px;object-fit:cover;border-radius:6px;background:#000" muted playsinline></video>`
+    : `<img src="${esc(u)}" alt="${esc(f.name??"")}" loading="lazy" style="width:100%;height:${h}px;object-fit:cover;border-radius:6px;background:#F2F2EE">`;
+}
+
+function cardTop(x) {
+  return `<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+    <label class="tgl" title="${x.is_on?"운영 중":"중지"}">
+      <input type="checkbox" data-on="${x.id}"${x.is_on?" checked":""}><span class="tgl-t"></span>
+      <span class="sm" style="margin-left:6px;color:${x.is_on?"var(--gA)":"var(--muted)"}">${x.is_on?"ON":"OFF"}</span></label>
+    ${stars(x.rating, x.id)}</div>`;
+}
+
+function folderView(rows) {
+  return `<div class="grid" style="grid-template-columns:repeat(3,1fr)">
+    ${rows.map(x => {
+      const files = x.files ?? [];
+      return `<article class="card p16 adc${x.is_on?"":" off"}" data-card="${x.id}">
+        ${cardTop(x)}
+        <div class="drop" data-drop="${x.id}">
+          ${files.length ? `<div class="fgrid">${files.map((f,i)=>`<div class="fcell">
+              ${thumb(f, files.length===1)}
+              <button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div>`).join("")}</div>`
+            : `<div class="ph" style="height:150px">이미지·영상을 끌어다 놓으세요</div>`}
+          <input type="file" class="hide" data-file="${x.id}" multiple accept="image/*,video/*">
+        </div>
+        <div style="margin-top:10px">
+          <div style="font-weight:500;font-size:13px">${esc(x.title || "제목 없음")}</div>
+          <p class="sm muted" style="margin-top:6px;line-height:1.6;white-space:pre-wrap;
+            display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden">${esc(x.body || "본문 없음")}</p>
+        </div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;
+          padding-top:10px;border-top:1px solid var(--line)">
+          <span class="sm muted">${esc(x.published_on || "게시일 미정")}</span>
+          <span class="sm" style="font-weight:500">${x.daily_budget?won(x.daily_budget)+" / 일":"예산 미설정"}</span>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:10px">
+          <button class="btn" data-edit="${x.id}" style="flex:1;height:30px">수정</button>
+          <button class="btn" data-del="${x.id}" style="height:30px;color:var(--gD)">삭제</button>
+        </div></article>`;
+    }).join("")}</div>`;
+}
+
+function listView(rows) {
+  return `<div style="display:flex;flex-direction:column;gap:10px">
+    ${rows.map(x => {
+      const files = x.files ?? [];
+      return `<article class="card p16 adc${x.is_on?"":" off"}" data-card="${x.id}"
+        style="display:grid;grid-template-columns:300px 1fr 200px;gap:16px;align-items:start">
+        <div>
+          <div class="drop" data-drop="${x.id}">
+            ${files.length ? `<div class="fgrid">${files.map((f,i)=>`<div class="fcell">
+                ${thumb(f, false)}<button class="fdel" data-fdel="${x.id}" data-fi="${i}" title="삭제">×</button></div>`).join("")}</div>`
+              : `<div class="ph" style="height:88px">파일을 끌어다 놓으세요</div>`}
+            <input type="file" class="hide" data-file="${x.id}" multiple accept="image/*,video/*">
+          </div>
+        </div>
+        <div style="min-width:0">
+          ${cardTop(x)}
+          <div style="font-weight:500;font-size:14px;margin-bottom:6px">${esc(x.title || "제목 없음")}</div>
+          <p class="sm" style="line-height:1.7;white-space:pre-wrap;color:var(--ink)">${esc(x.body || "본문 없음")}</p>
+        </div>
+        <div style="text-align:right">
+          <div class="lbl">게시일</div>
+          <div style="font-size:13px;margin-top:2px">${esc(x.published_on || "-")}</div>
+          <div class="lbl" style="margin-top:12px">일 예산</div>
+          <div style="font-size:16px;font-weight:500;margin-top:2px">${x.daily_budget?won(x.daily_budget):"-"}</div>
+          <div style="display:flex;gap:6px;margin-top:16px;justify-content:flex-end">
+            <button class="btn" data-edit="${x.id}" style="height:30px">수정</button>
+            <button class="btn" data-del="${x.id}" style="height:30px;color:var(--gD)">삭제</button>
+          </div>
+        </div></article>`;
+    }).join("")}</div>`;
+}
+
+function bindAdRows() {
+  const B = $("a_body");
+
+  B.querySelectorAll("input[data-on]").forEach(cb => cb.onchange = async () => {
+    const card = B.querySelector(`[data-card="${cb.dataset.on}"]`);
+    card.classList.toggle("off", !cb.checked);
+    cb.parentElement.querySelector(".sm").textContent = cb.checked ? "ON" : "OFF";
+    cb.parentElement.querySelector(".sm").style.color = cb.checked ? "var(--gA)" : "var(--muted)";
+    await sb.from("ad_creatives").update({ is_on: cb.checked }).eq("id", cb.dataset.on);
+  });
+
+  B.querySelectorAll(".stars").forEach(box => box.onclick = async (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    const v = +b.dataset.v, id = box.dataset.starFor;
+    box.querySelectorAll(".star").forEach(s => s.classList.toggle("on", +s.dataset.v <= v));
+    await sb.from("ad_creatives").update({ rating: v }).eq("id", id);
+  });
+
+  B.querySelectorAll("[data-drop]").forEach(dz => {
+    const id = dz.dataset.drop;
+    const input = dz.querySelector(`input[data-file="${id}"]`);
+    dz.onclick = (e) => { if (!e.target.closest(".fdel")) input.click(); };
+    input.onchange = () => uploadFiles(id, Array.from(input.files));
+    dz.ondragover = (e) => { e.preventDefault(); dz.classList.add("over"); };
+    dz.ondragleave = () => dz.classList.remove("over");
+    dz.ondrop = (e) => { e.preventDefault(); dz.classList.remove("over");
+      uploadFiles(id, Array.from(e.dataTransfer.files)); };
+  });
+
+  B.querySelectorAll("button[data-fdel]").forEach(b => b.onclick = async (e) => {
+    e.stopPropagation();
+    const { data } = await sb.from("ad_creatives").select("files").eq("id", b.dataset.fdel).single();
+    const files = (data?.files ?? []).slice();
+    const gone = files.splice(+b.dataset.fi, 1)[0];
+    if (!DEMO && gone?.path) await sb.storage.from(BUCKET).remove([gone.path]);
+    await sb.from("ad_creatives").update({ files }).eq("id", b.dataset.fdel);
+    loadAds();
+  });
+
+  B.querySelectorAll("button[data-edit]").forEach(b => b.onclick = async () => {
+    const { data } = await sb.from("ad_creatives").select("*").eq("id", b.dataset.edit).single();
+    openAdForm(data);
+  });
+  B.querySelectorAll("button[data-del]").forEach(b => b.onclick = async () => {
+    if (!confirm("이 소재를 삭제할까요? 첨부한 파일도 함께 삭제됩니다.")) return;
+    const { data } = await sb.from("ad_creatives").select("files").eq("id", b.dataset.del).single();
+    if (!DEMO && data?.files?.length) await sb.storage.from(BUCKET).remove(data.files.map(f=>f.path));
+    await sb.from("ad_creatives").delete().eq("id", b.dataset.del);
+    loadAds();
+  });
+}
+
+async function uploadFiles(id, files) {
+  const ok = files.filter(f => f.type.startsWith("image/") || f.type.startsWith("video/"));
+  if (!ok.length) return;
+  const { data: cur } = await sb.from("ad_creatives").select("files").eq("id", id).single();
+  const list = (cur?.files ?? []).slice();
+  const card = $("a_body").querySelector(`[data-card="${id}"]`);
+  if (card) card.style.opacity = ".5";
+
+  for (const f of ok) {
+    if (f.size > 50*1024*1024) { alert(`${f.name} 은 50MB를 넘어 올릴 수 없습니다.`); continue; }
+    if (DEMO) {
+      list.push({ path: URL.createObjectURL(f), name: f.name, type: f.type, size: f.size });
+    } else {
+      const ext = (f.name.split(".").pop() || "bin").toLowerCase();
+      const path = `${S.ads.channel_id}/${id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
+      const { error } = await sb.storage.from(BUCKET).upload(path, f, { contentType: f.type, upsert: false });
+      if (error) { alert(`${f.name} 업로드 실패: ${error.message}`); continue; }
+      list.push({ path, name: f.name, type: f.type, size: f.size });
+    }
+  }
+  await sb.from("ad_creatives").update({ files: list }).eq("id", id);
+  loadAds();
+}
+
+function openAdForm(row) {
+  const isNew = !row;
+  const F = S.ads;
+  const wrap = document.createElement("div");
+  wrap.className = "modal";
+  wrap.innerHTML = `<div class="modal-box">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+      <h2 class="h2">${isNew?"소재 추가":"소재 수정"}</h2>
+      <button class="btn" id="m_x" style="height:30px">닫기</button></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr">
+      <label class="f"><span class="lbl">채널</span>
+        <select class="inp" id="m_ch">${opt(S.channels.filter(c=>c.is_active), row?.channel_id ?? F.channel_id, "id","name")}</select></label>
+      <label class="f"><span class="lbl">매체</span><select class="inp" id="m_md"><option value="">선택 안 함</option></select></label>
+    </div>
+    <label class="f" style="margin-top:12px"><span class="lbl">소재 제목</span>
+      <input class="inp" id="m_ti" value="${esc(row?.title ?? "")}" placeholder="그랜저 월 49만원 카드뉴스"></label>
+    <label class="f" style="margin-top:12px"><span class="lbl">광고 본문</span>
+      <textarea class="inp" id="m_bd" rows="7" placeholder="실제 광고에 나가는 문구를 그대로 입력하세요">${esc(row?.body ?? "")}</textarea></label>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:12px">
+      <label class="f"><span class="lbl">게시일자</span>
+        <input class="inp" type="date" id="m_dt" value="${esc(row?.published_on ?? ymd(new Date()))}"></label>
+      <div><span class="lbl" style="display:block;margin-bottom:4px">일일 예산 (5,000원 단위)</span>
+        <div class="spin">
+          <input class="inp" id="m_bg" inputmode="numeric" value="${row?.daily_budget ?? 0}">
+          <div class="spin-btns">
+            <button type="button" id="m_up" aria-label="증가">▲</button>
+            <button type="button" id="m_dn" aria-label="감소">▼</button></div></div>
+        <div class="sm muted" id="m_bgt" style="margin-top:4px"></div></div>
+    </div>
+    <div style="display:flex;gap:16px;align-items:center;margin-top:16px">
+      <label class="tgl"><input type="checkbox" id="m_on"${row?(row.is_on?" checked":""):" checked"}>
+        <span class="tgl-t"></span><span class="sm" style="margin-left:6px">운영 ON</span></label>
+      <div id="m_st">${stars(row?.rating ?? 0, "modal")}</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn-solid" id="m_save">${isNew?"등록":"저장"}</button>
+      <button class="btn" id="m_cancel">취소</button>
+      <span class="msg" id="m_msg"></span></div>
+    ${isNew?`<p class="sm muted" style="margin-top:12px">등록 후 카드에 이미지·영상을 끌어다 놓으면 첨부됩니다.</p>`:""}
+  </div>`;
+  document.body.appendChild(wrap);
+
+  let rating = row?.rating ?? 0;
+  const fillMedia = () => {
+    const ms = S.media.filter(m => String(m.channel_id) === $("m_ch").value && m.is_active);
+    $("m_md").innerHTML = `<option value="">선택 안 함</option>` + opt(ms, row?.media_id ?? "", "id","name");
+  };
+  fillMedia();
+  $("m_ch").onchange = fillMedia;
+
+  const snap = () => {
+    let v = Math.max(0, Math.round((+String($("m_bg").value).replace(/[^0-9]/g,"") || 0) / BUDGET_STEP) * BUDGET_STEP);
+    $("m_bg").value = v;
+    $("m_bgt").textContent = v ? `${won(v)} · 월 환산 약 ${won(v*30)}` : "예산 미설정";
+    return v;
+  };
+  snap();
+  $("m_bg").oninput = () => { $("m_bgt").textContent = "5,000원 단위로 맞춰집니다"; };
+  $("m_bg").onblur = snap;
+  $("m_up").onclick = () => { $("m_bg").value = snap() + BUDGET_STEP; snap(); };
+  $("m_dn").onclick = () => { $("m_bg").value = Math.max(0, snap() - BUDGET_STEP); snap(); };
+  $("m_bg").onkeydown = (e) => {
+    if (e.key === "ArrowUp")   { e.preventDefault(); $("m_bg").value = snap() + BUDGET_STEP; snap(); }
+    if (e.key === "ArrowDown") { e.preventDefault(); $("m_bg").value = Math.max(0, snap() - BUDGET_STEP); snap(); }
+  };
+  $("m_st").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    rating = +b.dataset.v;
+    $("m_st").querySelectorAll(".star").forEach(s => s.classList.toggle("on", +s.dataset.v <= rating));
+  };
+
+  const close = () => wrap.remove();
+  $("m_x").onclick = close; $("m_cancel").onclick = close;
+  wrap.onclick = (e) => { if (e.target === wrap) close(); };
+
+  $("m_save").onclick = async () => {
+    const m = $("m_msg");
+    if (!$("m_ti").value.trim() && !$("m_bd").value.trim()) {
+      m.className="msg err"; m.textContent="제목이나 본문 중 하나는 입력하세요."; return; }
+    $("m_save").disabled = true;
+    const p = {
+      channel_id: +$("m_ch").value,
+      media_id: $("m_md").value ? +$("m_md").value : null,
+      title: $("m_ti").value.trim() || null,
+      body: $("m_bd").value.trim() || null,
+      published_on: $("m_dt").value || null,
+      daily_budget: snap(),
+      rating, is_on: $("m_on").checked
+    };
+    const { error } = isNew
+      ? await sb.from("ad_creatives").insert({ ...p, files: [], created_by: S.user?.id ?? null })
+      : await sb.from("ad_creatives").update(p).eq("id", row.id);
+    $("m_save").disabled = false;
+    if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+    S.ads.channel_id = p.channel_id;
+    close(); vAds();
+  };
+}
+
+/* ============================================================
+   계약
+   ============================================================ */
+async function vContracts() {
+  const [ct, ld] = await Promise.all([
+    sb.from("contracts").select("*").order("contract_date",{ascending:false}).limit(300),
+    sb.from("leads").select("id,lead_no,name,phone,channel_id,status")
+      .in("status",["견적발송","심사요청","심사통과","계약"]).order("inflow_at",{ascending:false}).limit(300)
+  ]);
+  const rows = ct.data ?? [], leads = ld.data ?? [];
+  const leadMap = new Map(leads.map(l=>[l.id,l]));
+  const rev = rows.filter(r=>r.status!=="취소").reduce((a,r)=>a+Number(r.commission??0),0);
+
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">계약</h1>
+    <p class="sm muted" style="margin-top:4px">${num(rows.length)}건 · 수수료 합계 ${won(rev)}</p></div></div>
+    <section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:12px">계약 등록</h2>
+      <div class="grid" style="grid-template-columns:repeat(4,1fr)">
+        <label class="f" style="grid-column:span 2"><span class="lbl">대상 DB</span>
+          <select class="inp" id="t_ld"><option value="">선택</option>
+            ${leads.map(l=>`<option value="${l.id}">${esc((l.name||"이름없음")+" · "+(l.phone||"")+" · "+chName(l.channel_id))}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">계약일</span><input class="inp" type="date" id="t_dt" value="${ymd(new Date())}"></label>
+        <label class="f"><span class="lbl">차종</span><select class="inp" id="t_cm"><option value="">선택</option>
+          ${S.models.map(m=>`<option value="${m.id}">${esc(m.brand+" "+m.model)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">약정 개월</span><select class="inp" id="t_mo">${opt([36,48,60],48)}</select></label>
+        <label class="f"><span class="lbl">월 렌트료</span><input class="inp" id="t_fee" inputmode="numeric"></label>
+        <label class="f"><span class="lbl">총 계약금액</span><input class="inp" id="t_amt" inputmode="numeric"></label>
+        <label class="f"><span class="lbl">수수료 (매출)</span><input class="inp" id="t_cm2" inputmode="numeric"></label>
+      </div>
+      <button class="btn-solid" id="t_save" style="margin-top:16px">등록</button>
+      <span class="msg" id="t_msg"></span>
+      <p class="sm muted" style="margin-top:12px">등록하면 해당 DB의 상태가 자동으로 계약으로 바뀝니다. 대상 DB 목록에는 견적발송 이후 상태만 나옵니다.</p>
+    </section>
+    ${rows.length?`<div class="card scroll"><table><thead><tr>
+      <th>계약일</th><th>고객</th><th>채널</th><th>차종</th><th>개월</th><th>월 렌트료</th><th>총 계약금액</th><th>수수료</th><th>상태</th><th></th></tr></thead>
+      <tbody>${rows.map(r=>{const l=leadMap.get(r.lead_id);const cm=S.models.find(m=>m.id===r.car_model_id);return `<tr>
+        <td>${esc(r.contract_date)}</td><td>${esc(l?.name??"-")}</td>
+        <td class="muted">${l?esc(chName(l.channel_id)):"-"}</td>
+        <td>${cm?esc(cm.brand+" "+cm.model):"-"}</td><td class="muted">${r.rental_months??"-"}</td>
+        <td>${won(r.monthly_fee)}</td><td>${won(r.total_amount)}</td>
+        <td style="font-weight:500">${won(r.commission)}</td>
+        <td><select class="sel-sm" data-cid="${r.id}">${opt(["계약","출고완료","취소"],r.status)}</select></td>
+        <td><button class="btn" data-cdel="${r.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td></tr>`;}).join("")}
+      </tbody></table></div>`:`<div class="card empty">등록된 계약이 없습니다.</div>`}`;
+
+  $("t_save").onclick = async () => {
+    const m = $("t_msg");
+    if (!$("t_ld").value) { m.className="msg err"; m.textContent="대상 DB를 선택하세요."; return; }
+    $("t_save").disabled = true;
+    const { error } = await sb.from("contracts").insert({
+      lead_id:$("t_ld").value, contract_date:$("t_dt").value,
+      car_model_id:$("t_cm").value?+$("t_cm").value:null,
+      rental_months:+$("t_mo").value,
+      monthly_fee:+($("t_fee").value||0), total_amount:+($("t_amt").value||0),
+      commission:+($("t_cm2").value||0)
+    });
+    if (!error) await sb.from("leads").update({ status:"계약" }).eq("id", $("t_ld").value);
+    $("t_save").disabled = false;
+    if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+    vContracts();
+  };
+  $("main").querySelectorAll("select[data-cid]").forEach(sel => sel.onchange = async () => {
+    await sb.from("contracts").update({ status: sel.value }).eq("id", sel.dataset.cid);
+  });
+  $("main").querySelectorAll("button[data-cdel]").forEach(b => b.onclick = async () => {
+    if (!confirm("이 계약을 삭제할까요?")) return;
+    await sb.from("contracts").delete().eq("id", b.dataset.cdel); vContracts();
+  });
+}
+
+/* ============================================================
+   성과분석
+   ============================================================ */
+async function vPerformance() {
+  const TABS = ["채널","기간 비교","채널 모멘텀","소재","차급","심사·재문의"];
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">성과분석</h1>
+    <p class="sm muted" style="margin-top:4px" id="psub"></p></div><div id="pctl"></div></div>
+    <div class="seg" id="ptab" style="margin-bottom:16px">${TABS.map(t=>`<button data-t="${t}"${S.perfTab===t?' class="on"':""}>${t}</button>`).join("")}</div>
+    <div id="pbody" class="muted">불러오는 중</div>`;
+  $("ptab").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.perfTab = b.dataset.t; vPerformance(); };
+
+  if (S.perfTab === "기간 비교") return pCompare();
+  if (S.perfTab === "채널 모멘텀") return pMomentum();
+
+  const [g,cr,mx,cd,rf,dp] = await Promise.all([
+    sb.from("v_channel_grade").select("*"), sb.from("v_creative_perf").select("*"),
+    sb.from("v_model_mix").select("*"), sb.from("v_credit_pass").select("*"),
+    sb.from("v_referral").select("*"), sb.from("v_duplicate").select("*")
+  ]);
+  const grades=g.data??[], creas=cr.data??[], mix=mx.data??[], credit=cd.data??[], refs=rf.data??[], dups=dp.data??[];
+  const dupOf = Object.fromEntries(dups.map(d=>[d.channel_id,d]));
+  $("psub").textContent = "최근 30일 롤링 기준";
+
+  let body = "";
+  if (S.perfTab === "채널") {
+    body = grades.length?`<div class="card scroll"><table><thead><tr>
+      <th>등급</th><th>채널</th><th>전체 DB</th><th>유효 DB</th><th>중복률</th><th>광고비</th><th>CPA</th><th>효율점수</th></tr></thead>
+      <tbody>${[...grades].sort((a,b)=>(b.score??-1)-(a.score??-1)||b.valid_leads-a.valid_leads).map(x=>`<tr>
+        <td>${badge(x.grade)}</td><td style="font-weight:500">${esc(x.name)}</td>
+        <td>${num(x.total_leads)}</td><td>${num(x.valid_leads)}</td>
+        <td class="muted">${pct(dupOf[x.channel_id]?.dup_rate??null)}</td>
+        <td>${x.cost>0?won(x.cost):"-"}</td><td>${x.cpa?won(x.cpa):"-"}</td><td>${x.score??"-"}</td></tr>`).join("")}
+      </tbody></table></div>`:`<div class="card empty">집계할 채널 데이터가 없습니다.</div>`;
+  } else if (S.perfTab === "소재") {
+    body = creas.length?`<div class="card scroll"><table><thead><tr>
+      <th>소재</th><th>유형</th><th>노출</th><th>클릭</th><th>유효 DB</th><th>광고비</th><th>CPA</th></tr></thead>
+      <tbody>${[...creas].sort((a,b)=>b.valid_leads-a.valid_leads).map(c=>`<tr>
+        <td style="font-weight:500">${esc(c.title)}</td><td class="muted">${esc(c.type??"-")}</td>
+        <td class="muted">${num(c.impressions)}</td><td class="muted">${num(c.clicks)}</td>
+        <td>${num(c.valid_leads)}</td><td>${c.cost>0?won(c.cost):"-"}</td><td>${c.cpa?won(c.cpa):"-"}</td></tr>`).join("")}
+      </tbody></table></div>`:`<div class="card empty">등록된 소재가 없습니다.</div>`;
+  } else if (S.perfTab === "차급") {
+    const byCh = new Map();
+    mix.forEach(r=>{ if(!byCh.has(r.channel_id)) byCh.set(r.channel_id,new Map());
+      const i=byCh.get(r.channel_id); i.set(r.segment,(i.get(r.segment)??0)+r.valid_leads); });
+    body = mix.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(240px,1fr))">
+      ${Array.from(byCh.entries()).map(([cid,segs])=>{
+        const tot = Array.from(segs.values()).reduce((a,b)=>a+b,0);
+        return `<div class="card p16"><h3 class="h2" style="margin-bottom:12px">${esc(chName(cid))}</h3>
+          ${Array.from(segs.entries()).sort((a,b)=>b[1]-a[1]).map(([s,v])=>`<div style="margin-bottom:8px">
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px">
+              <span>${esc(s)}</span><span class="muted">${num(v)} · ${pct(tot?v/tot*100:0,0)}</span></div>
+            <div class="bar-bg"><div class="bar-fg" style="width:${tot?(v/tot*100).toFixed(1):0}%"></div></div></div>`).join("")}</div>`;
+      }).join("")}</div>`:`<div class="card empty">관심 차종이 입력된 DB가 없습니다.</div>`;
+  } else {
+    body = `<div class="grid" style="grid-template-columns:1fr 1fr">
+      <section class="card scroll"><div class="p16" style="padding-bottom:8px"><h2 class="h2">채널별 심사 통과율</h2></div>
+        ${credit.length?`<table><thead><tr><th>채널</th><th>신청</th><th>통과</th><th>거절</th><th>통과율</th></tr></thead>
+          <tbody>${credit.map(c=>`<tr><td>${esc(chName(c.channel_id))}</td><td>${num(c.requested)}</td>
+            <td>${num(c.passed)}</td><td class="muted">${num(c.rejected)}</td>
+            <td style="font-weight:500">${pct(c.pass_rate)}</td></tr>`).join("")}</tbody></table>`
+          :`<div class="empty">심사 결과가 입력된 DB가 없습니다.</div>`}</section>
+      <section class="card scroll"><div class="p16" style="padding-bottom:8px"><h2 class="h2">유입 유형별 집계</h2></div>
+        ${refs.length?`<table><thead><tr><th>채널</th><th>유형</th><th>DB</th><th>계약</th></tr></thead>
+          <tbody>${refs.map(r=>`<tr><td>${esc(chName(r.channel_id))}</td><td class="muted">${esc(r.source_type)}</td>
+            <td>${num(r.leads)}</td><td>${num(r.contracts)}</td></tr>`).join("")}</tbody></table>`
+          :`<div class="empty">집계할 데이터가 없습니다.</div>`}</section></div>`;
+  }
+  $("pbody").innerHTML = body;
+}
+
+function bucketKey(d, unit) {
+  if (unit === "일") return d;
+  if (unit === "주") return weekStart(d);
+  return d.slice(0,7);
+}
+
+async function pCompare() {
+  $("psub").textContent = "직전 동일 기간과 나란히 비교합니다";
+  $("pctl").innerHTML = `<div class="seg" id="cu">${["일","주","월"].map(u=>`<button data-u="${u}"${S.cmpUnit===u?' class="on"':""}>${u}별</button>`).join("")}</div>`;
+  $("cu").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.cmpUnit = b.dataset.u; pCompare(); };
+
+  const span = S.cmpUnit === "일" ? 14 : S.cmpUnit === "주" ? 56 : 180;
+  const from = daysAgo(span*2), mid = daysAgo(span);
+  const { data } = await sb.from("v_perf_daily").select("*").gte("d", from).order("d");
+  const all = data ?? [];
+
+  const agg = (rows) => {
+    const m = new Map();
+    rows.forEach(r => {
+      const k = bucketKey(r.d, S.cmpUnit);
+      const c = m.get(k) ?? { k, leads:0, cost:0, ct:0, rev:0, total:0 };
+      c.leads += r.valid_leads; c.total += r.total_leads;
+      c.cost += Number(r.cost); c.ct += r.contracts; c.rev += Number(r.revenue);
+      m.set(k, c);
+    });
+    return Array.from(m.values()).sort((a,b)=>a.k.localeCompare(b.k))
+      .map(x => ({ ...x, cpa: x.leads&&x.cost?x.cost/x.leads:null, cps: x.ct&&x.cost?x.cost/x.ct:null,
+        roas: x.cost?x.rev/x.cost:null, arpu: x.ct?x.rev/x.ct:null }));
+  };
+  const curRows = all.filter(r => r.d >= mid), prevRows = all.filter(r => r.d < mid);
+  const cur = agg(curRows), prev = agg(prevRows);
+  const sum = (rows) => rows.reduce((a,r)=>({leads:a.leads+r.valid_leads,cost:a.cost+Number(r.cost),
+    ct:a.ct+r.contracts,rev:a.rev+Number(r.revenue)}),{leads:0,cost:0,ct:0,rev:0});
+  const A = sum(curRows), B = sum(prevRows);
+  const mk = (o) => ({ ...o, cpa:o.leads&&o.cost?o.cost/o.leads:null, cps:o.ct&&o.cost?o.cost/o.ct:null,
+    roas:o.cost?o.rev/o.cost:null, arpu:o.ct?o.rev/o.ct:null });
+  const a = mk(A), b = mk(B);
+
+  const metrics = [
+    ["유효 DB","leads",num,false],["광고비","cost",won,true],["유효 CPA","cpa",won,true],
+    ["계약","ct",num,false],["CPS","cps",won,true],["수수료","rev",won,false],
+    ["객단가","arpu",won,false],["ROAS","roas",(v)=>v==null?"-":v.toFixed(2)+"배",false]
+  ];
+
+  $("pbody").innerHTML = `
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+      ${metrics.slice(0,4).map(([l,k,f,inv])=>`<div class="card p16">
+        <div class="lbl">${l}</div><div class="val">${f(a[k])}</div>
+        <div class="sm" style="margin-top:4px">${delta(a[k],b[k],inv)} <span class="muted">직전 ${f(b[k])}</span></div></div>`).join("")}
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+      ${metrics.slice(4).map(([l,k,f,inv])=>`<div class="card p16">
+        <div class="lbl">${l}</div><div class="val">${f(a[k])}</div>
+        <div class="sm" style="margin-top:4px">${delta(a[k],b[k],inv)} <span class="muted">직전 ${f(b[k])}</span></div></div>`).join("")}
+    </div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">유효 DB</h2>
+        ${svgDual(cur,prev,"leads",["이번 기간","직전 기간"])}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">광고비</h2>
+        ${svgDual(cur,prev,"cost",["이번 기간","직전 기간"])}</section>
+    </div>
+    <div class="card scroll">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">${S.cmpUnit}별 상세</h2></div>
+      <table><thead><tr><th>구간</th><th>전체 DB</th><th>유효 DB</th><th>광고비</th><th>CPA</th><th>계약</th><th>CPS</th><th>수수료</th><th>ROAS</th></tr></thead>
+      <tbody>${[...cur].reverse().map(r=>`<tr>
+        <td style="font-weight:500">${esc(r.k)}</td><td>${num(r.total)}</td><td>${num(r.leads)}</td>
+        <td>${r.cost?won(r.cost):"-"}</td><td>${r.cpa?won(r.cpa):"-"}</td>
+        <td>${num(r.ct)}</td><td>${r.cps?won(r.cps):"-"}</td>
+        <td>${r.rev?won(r.rev):"-"}</td><td>${r.roas!=null?r.roas.toFixed(2)+"배":"-"}</td></tr>`).join("")}
+      </tbody></table></div>`;
+}
+
+async function pMomentum() {
+  $("psub").textContent = "채널별 투자 대비 성과 흐름";
+  $("pctl").innerHTML = `<div class="seg" id="cu">${["일","주","월"].map(u=>`<button data-u="${u}"${S.cmpUnit===u?' class="on"':""}>${u}별</button>`).join("")}</div>`;
+  $("cu").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.cmpUnit = b.dataset.u; pMomentum(); };
+
+  const span = S.cmpUnit === "일" ? 14 : S.cmpUnit === "주" ? 56 : 180;
+  const mid = daysAgo(span);
+  const { data } = await sb.from("v_perf_daily").select("*").gte("d", daysAgo(span*2)).order("d");
+  const all = data ?? [];
+
+  const byCh = (rows) => {
+    const m = new Map();
+    rows.forEach(r => {
+      const c = m.get(r.channel_id) ?? { id:r.channel_id, name:r.channel_name, leads:0, cost:0, ct:0, rev:0 };
+      c.leads += r.valid_leads; c.cost += Number(r.cost); c.ct += r.contracts; c.rev += Number(r.revenue);
+      m.set(r.channel_id, c);
+    });
+    return m;
+  };
+  const A = byCh(all.filter(r=>r.d>=mid)), B = byCh(all.filter(r=>r.d<mid));
+  const calc = (o) => o ? { ...o, cpa:o.leads&&o.cost?o.cost/o.leads:null, cps:o.ct&&o.cost?o.cost/o.ct:null,
+    roas:o.cost?o.rev/o.cost:null, arpu:o.ct?o.rev/o.ct:null } : null;
+  const list = Array.from(A.values()).map(x=>({ cur:calc(x), prev:calc(B.get(x.id)) }))
+    .sort((a,b)=>b.cur.leads-a.cur.leads);
+
+  const series = new Map();
+  all.filter(r=>r.d>=mid).forEach(r => {
+    const k = bucketKey(r.d, S.cmpUnit);
+    if (!series.has(r.channel_id)) series.set(r.channel_id, new Map());
+    const s = series.get(r.channel_id);
+    const c = s.get(k) ?? { k, leads:0, cost:0 };
+    c.leads += r.valid_leads; c.cost += Number(r.cost); s.set(k,c);
+  });
+
+  $("pbody").innerHTML = list.length ? `
+    <div class="card scroll" style="margin-bottom:12px">
+      <table><thead><tr><th>채널</th><th>유효 DB</th><th></th><th>광고비</th><th></th>
+        <th>CPA</th><th></th><th>계약</th><th>CPS</th><th>객단가</th><th>ROAS</th><th></th></tr></thead>
+      <tbody>${list.map(({cur,prev})=>`<tr>
+        <td style="font-weight:500">${esc(cur.name)}</td>
+        <td>${num(cur.leads)}</td><td class="sm">${delta(cur.leads,prev?.leads,false)}</td>
+        <td>${cur.cost?won(cur.cost):"-"}</td><td class="sm">${delta(cur.cost,prev?.cost,true)}</td>
+        <td>${cur.cpa?won(cur.cpa):"-"}</td><td class="sm">${delta(cur.cpa,prev?.cpa,true)}</td>
+        <td>${num(cur.ct)}</td><td>${cur.cps?won(cur.cps):"-"}</td>
+        <td>${cur.arpu?won(cur.arpu):"-"}</td>
+        <td>${cur.roas!=null?cur.roas.toFixed(2)+"배":"-"}</td>
+        <td class="sm">${delta(cur.roas,prev?.roas,false)}</td></tr>`).join("")}
+      </tbody></table></div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+      ${list.map(({cur})=>{
+        const s = Array.from((series.get(cur.id) ?? new Map()).values()).sort((a,b)=>a.k.localeCompare(b.k));
+        return `<section class="card p16"><div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+          <h3 class="h2">${esc(cur.name)}</h3><span class="sm muted">유효 DB ${num(cur.leads)}</span></div>
+          ${svgLine(s,"leads")}</section>`;
+      }).join("")}</div>`
+    : `<div class="card empty">비교할 데이터가 없습니다.</div>`;
+}
+
+/* ============================================================
+   손익
+   ============================================================ */
+async function vPnl() {
+  const [p, f] = await Promise.all([
+    sb.from("v_monthly_pnl").select("*").order("ym",{ascending:false}).limit(24),
+    sb.from("fixed_costs").select("*").order("ym",{ascending:false}).limit(200)
+  ]);
+  const rows = p.data ?? [], fixed = f.data ?? [];
+  const cur = rows[0];
+  const owner = S.role === "owner";
+
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">손익</h1>
+    <p class="sm muted" style="margin-top:4px">수수료 매출 − 광고비 − 고정비</p></div></div>
+    ${cur?`<div class="grid" style="grid-template-columns:repeat(4,1fr);margin-bottom:12px">
+      ${[["수수료 매출",won(cur.revenue)],["광고비",won(cur.ad_cost)],["고정비",won(cur.fixed_cost)],
+         ["순이익",won(cur.profit)]].map(([l,v],i)=>`<div class="card p16">
+        <div class="lbl">${l}${i===3?` <span class="sm">(${esc(cur.ym)})</span>`:""}</div>
+        <div class="val" ${i===3?`style="color:${cur.profit>=0?"var(--gA)":"var(--gD)"}"`:""}>${v}</div></div>`).join("")}
+    </div>`:""}
+
+    <div class="card scroll" style="margin-bottom:12px">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">월별 손익</h2></div>
+      ${rows.length?`<table><thead><tr><th>월</th><th>유효 DB</th><th>계약</th><th>수수료 매출</th>
+        <th>광고비</th><th>고정비</th><th>순이익</th><th>이익률</th></tr></thead>
+        <tbody>${rows.map(r=>{const m=Number(r.revenue)?Number(r.profit)/Number(r.revenue)*100:null;return `<tr>
+          <td style="font-weight:500">${esc(r.ym)}</td><td>${num(r.valid_leads)}</td><td>${num(r.contracts)}</td>
+          <td>${won(r.revenue)}</td><td>${won(r.ad_cost)}</td><td>${won(r.fixed_cost)}</td>
+          <td style="font-weight:500;color:${Number(r.profit)>=0?"var(--gA)":"var(--gD)"}">${won(r.profit)}</td>
+          <td class="muted">${pct(m)}</td></tr>`;}).join("")}</tbody></table>`
+        :`<div class="empty">계약 데이터가 없어 손익을 계산할 수 없습니다. 계약 메뉴에서 먼저 등록하세요.</div>`}
+    </div>
+
+    <section class="card p16">
+      <h2 class="h2" style="margin-bottom:4px">고정비 입력</h2>
+      <p class="sm muted" style="margin-bottom:12px">인건비·임대료·툴 구독료 등 월 고정 지출${owner?"":" (대표 계정만 수정 가능)"}</p>
+      ${owner?`<div class="grid" style="grid-template-columns:120px 1fr 1fr 1fr auto">
+        <label class="f"><span class="lbl">월</span><input class="inp" id="x_ym" value="${thisYm()}" placeholder="2026-07"></label>
+        <label class="f"><span class="lbl">항목</span><select class="inp" id="x_it">${opt(["인건비","임대료","툴 구독료","차량 유지비","기타"],"인건비")}</select></label>
+        <label class="f"><span class="lbl">금액</span><input class="inp" id="x_am" inputmode="numeric"></label>
+        <label class="f"><span class="lbl">메모</span><input class="inp" id="x_mm"></label>
+        <div style="display:flex;align-items:flex-end"><button class="btn-solid" id="x_go" style="min-width:80px">저장</button></div>
+      </div><span class="msg" id="x_msg"></span>`:""}
+      ${fixed.length?`<div class="scroll" style="margin-top:16px;border:1px solid var(--line);border-radius:6px">
+        <table><thead><tr><th>월</th><th>항목</th><th>금액</th><th>메모</th>${owner?"<th></th>":""}</tr></thead>
+        <tbody>${fixed.map(x=>`<tr><td>${esc(x.ym)}</td><td>${esc(x.item)}</td>
+          <td style="font-weight:500">${won(x.amount)}</td><td class="muted">${esc(x.memo??"-")}</td>
+          ${owner?`<td><button class="btn" data-fdel="${x.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td>`:""}</tr>`).join("")}
+        </tbody></table></div>`:`<p class="sm muted" style="margin-top:12px">등록된 고정비가 없습니다.</p>`}
+    </section>`;
+
+  if (owner && $("x_go")) {
+    $("x_go").onclick = async () => {
+      const m = $("x_msg");
+      if (!/^\d{4}-\d{2}$/.test($("x_ym").value)) { m.className="msg err"; m.textContent="월 형식은 2026-07 입니다."; return; }
+      $("x_go").disabled = true;
+      const { error } = await sb.from("fixed_costs").upsert({
+        ym:$("x_ym").value, item:$("x_it").value, amount:+($("x_am").value||0), memo:$("x_mm").value||null
+      },{ onConflict:"ym,item" });
+      $("x_go").disabled = false;
+      if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+      vPnl();
+    };
+    $("main").querySelectorAll("button[data-fdel]").forEach(b => b.onclick = async () => {
+      await sb.from("fixed_costs").delete().eq("id", +b.dataset.fdel); vPnl();
+    });
+  }
+}
+
+/* ============================================================
+   자료관리
+   ============================================================ */
+const SRC = [
+  { k:"leads", l:"DB 원장", d:"inflow_at" },
+  { k:"ad_costs", l:"광고비", d:"cost_date" },
+  { k:"contracts", l:"계약", d:"contract_date" },
+  { k:"v_perf_daily", l:"일자별 성과", d:"d" },
+  { k:"v_monthly_pnl", l:"월별 손익", d:"" },
+  { k:"v_channel_grade", l:"채널 등급", d:"" },
+  { k:"v_creative_perf", l:"소재 성과", d:"" }
+];
+
+function vData() {
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">자료관리</h1>
+    <p class="sm muted" style="margin-top:4px">선택한 기간의 자료를 CSV로 내려받습니다</p></div></div>
+    <section class="card p16" style="max-width:620px">
+      <label class="f" style="margin-bottom:12px"><span class="lbl">자료 종류</span>
+        <select class="inp" id="d_src">${SRC.map(s=>`<option value="${s.k}">${s.l}</option>`).join("")}</select></label>
+      <div class="grid" style="grid-template-columns:1fr 1fr 1fr">
+        <label class="f"><span class="lbl">시작일</span><input class="inp" type="date" id="d_from" value="${daysAgo(30)}"></label>
+        <label class="f"><span class="lbl">종료일</span><input class="inp" type="date" id="d_to" value="${ymd(new Date())}"></label>
+        <div style="display:flex;align-items:flex-end"><button class="btn-solid" id="d_go" style="width:100%">CSV 내려받기</button></div>
+      </div><p class="msg" id="d_msg"></p></section>
+    <section class="card p16" style="max-width:620px;margin-top:12px">
+      <h2 class="h2" style="margin-bottom:8px">개인정보 취급 안내</h2>
+      <ul class="muted" style="font-size:12px;line-height:1.8;padding-left:16px">
+        <li>DB 원장 내보내기에는 고객명과 연락처가 포함됩니다.</li>
+        <li>내려받기 기록은 접근 이력에 남습니다.</li>
+        <li>내려받은 파일은 공유 폴더나 메신저에 올리지 마세요.</li></ul></section>`;
+
+  $("d_go").onclick = async () => {
+    const meta = SRC.find(s=>s.k===$("d_src").value), m = $("d_msg");
+    m.className="msg"; m.textContent="준비 중";
+    let q = sb.from(meta.k).select("*");
+    if (meta.d) q = q.gte(meta.d,$("d_from").value)
+      .lte(meta.d, meta.d==="inflow_at" ? $("d_to").value+"T23:59:59" : $("d_to").value);
+    const { data, error } = await q.limit(20000);
+    if (error) { m.className="msg err"; m.textContent="불러오지 못했습니다: "+error.message; return; }
+    const rows = data ?? [];
+    if (!rows.length) { m.className="msg err"; m.textContent="해당 기간에 데이터가 없습니다."; return; }
+    const blob = new Blob(["\uFEFF"+toCsv(rows)],{type:"text/csv;charset=utf-8;"});
+    const url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url; a.download = `${meta.l}_${$("d_from").value}_${$("d_to").value}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    await sb.from("audit_logs").insert({ user_id:S.user?.id??null, action:"export",
+      table_name:meta.k, record_id:`${$("d_from").value}~${$("d_to").value}` });
+    m.className="msg"; m.textContent = `${num(rows.length)}행 내려받았습니다.`;
+  };
+}
+
+/* ============================================================
+   설정
+   ============================================================ */
+async function vSettings() {
+  await loadMasters();
+  const TABS = ["채널·매체","캠페인","소재","UTM 링크","계정"];
+  let body = "";
+
+  if (S.setTab === "채널·매체") {
+    body = `<div class="card scroll"><table><thead><tr>
+      <th>채널</th><th>매체코드</th><th>매체명</th><th>비용 발생</th><th>사용</th></tr></thead>
+      <tbody>${S.media.map(m=>`<tr><td>${esc(chName(m.channel_id))}</td>
+        <td class="mono muted">${esc(m.code)}</td><td style="font-weight:500">${esc(m.name)}</td>
+        <td class="muted">${m.is_paid?"예":"아니오"}</td>
+        <td><input type="checkbox" data-mid="${m.id}"${m.is_active?" checked":""}></td></tr>`).join("")}
+      </tbody></table></div>`;
+  } else if (S.setTab === "캠페인") {
+    body = `<section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:12px">캠페인 추가</h2>
+      <div class="grid" style="grid-template-columns:1.2fr 1.2fr 1fr auto">
+        <label class="f"><span class="lbl">매체</span><select class="inp" id="k_md"><option value="">선택</option>
+          ${S.media.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${esc(chName(m.channel_id)+" · "+m.name)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">캠페인 이름</span><input class="inp" id="k_nm" placeholder="7월 그랜저 릴스"></label>
+        <label class="f"><span class="lbl">코드 (자동)</span>
+          <input class="inp" id="k_cd" readonly placeholder="매체를 선택하세요" style="background:#F4F4F0;color:var(--muted)"></label>
+        <div style="display:flex;align-items:flex-end"><button class="btn-solid" id="k_go" style="min-width:90px">추가</button></div>
+      </div>
+      <label class="sm muted" style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="k_edit"> 코드 직접 입력</label>
+      <span class="msg" id="k_msg"></span></section>
+      ${S.camps.length?`<div class="card scroll"><table><thead><tr><th>캠페인 이름</th><th>매체</th><th>코드</th><th></th></tr></thead>
+        <tbody>${S.camps.map(c=>`<tr><td style="font-weight:500">${esc(c.name)}</td>
+          <td class="muted">${esc(mdName(c.media_id))}</td><td class="mono muted">${esc(c.code)}</td>
+          <td><button class="btn" data-kdel="${c.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td></tr>`).join("")}
+        </tbody></table></div>`:`<div class="card empty">등록된 캠페인이 없습니다.</div>`}`;
+  } else if (S.setTab === "소재") {
+    body = `<section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:12px">소재 추가</h2>
+      <div class="grid" style="grid-template-columns:1.4fr .8fr 1fr 1fr auto">
+        <label class="f"><span class="lbl">소재 제목</span><input class="inp" id="r_ti" placeholder="그랜저 월 49만원 카드뉴스"></label>
+        <label class="f"><span class="lbl">유형</span><select class="inp" id="r_ty">${opt(["카드뉴스","영상","이미지","텍스트"],"카드뉴스")}</select></label>
+        <label class="f"><span class="lbl">캠페인</span><select class="inp" id="r_cp"><option value="">선택 안 함</option>
+          ${S.camps.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">코드 (자동)</span><input class="inp" id="r_cd" readonly style="background:#F4F4F0;color:var(--muted)"></label>
+        <div style="display:flex;align-items:flex-end"><button class="btn-solid" id="r_go" style="min-width:90px">추가</button></div>
+      </div>
+      <label class="sm muted" style="display:inline-flex;align-items:center;gap:6px;margin-top:10px;cursor:pointer">
+        <input type="checkbox" id="r_edit"> 코드 직접 입력</label>
+      <span class="msg" id="r_msg"></span></section>
+      ${S.creas.length?`<div class="card scroll"><table><thead><tr><th>소재 제목</th><th>유형</th><th>캠페인</th><th>코드</th><th></th></tr></thead>
+        <tbody>${S.creas.map(c=>`<tr><td style="font-weight:500">${esc(c.title)}</td>
+          <td class="muted">${esc(c.type??"-")}</td>
+          <td class="muted">${esc(S.camps.find(x=>x.id===c.campaign_id)?.name??"-")}</td>
+          <td class="mono muted">${esc(c.code)}</td>
+          <td><button class="btn" data-rdel="${c.id}" style="height:26px;padding:0 8px;color:var(--gD)">삭제</button></td></tr>`).join("")}
+        </tbody></table></div>`:`<div class="card empty">등록된 소재가 없습니다.</div>`}`;
+  } else if (S.setTab === "UTM 링크") {
+    body = `<section class="card p16" style="max-width:720px">
+      <h2 class="h2" style="margin-bottom:12px">UTM 링크 만들기</h2>
+      <label class="f" style="margin-bottom:12px"><span class="lbl">랜딩 주소</span>
+        <input class="inp" id="u_base" placeholder="https://example.com/quote"></label>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr)">
+        <label class="f"><span class="lbl">매체</span><select class="inp" id="u_md2"><option value="">선택</option>
+          ${S.media.filter(m=>m.is_active).map(m=>`<option value="${m.id}">${esc(chName(m.channel_id)+" · "+m.name)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">캠페인</span><select class="inp" id="u_cp"><option value="">선택 안 함</option>
+          ${S.camps.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join("")}</select></label>
+        <label class="f"><span class="lbl">소재</span><select class="inp" id="u_cr"><option value="">선택 안 함</option>
+          ${S.creas.map(c=>`<option value="${c.id}">${esc(c.title)}</option>`).join("")}</select></label>
+      </div>
+      <div style="margin-top:16px"><span class="lbl">완성된 링크</span>
+        <div id="u_out" style="border:1px solid var(--line);border-radius:6px;padding:12px;background:var(--paper);
+          font-size:12px;word-break:break-all;min-height:48px;margin-top:4px">랜딩 주소와 매체를 선택하면 링크가 만들어집니다.</div>
+        <button class="btn" id="u_cpy" style="margin-top:8px">링크 복사</button>
+        <span class="msg" id="u_msg"></span></div></section>`;
+  } else {
+    body = `<section class="card p16" style="max-width:420px">
+      <h2 class="h2" style="margin-bottom:4px">비밀번호 변경</h2>
+      <p class="sm muted" style="margin-bottom:16px">현재 계정: ${esc(S.user?.email??"")} · 권한 ${S.role==="owner"?"대표":"마케터"}</p>
+      <label class="f" style="margin-bottom:10px"><span class="lbl">새 비밀번호</span>
+        <input class="inp" id="p_new" type="password" placeholder="6자 이상"></label>
+      <label class="f" style="margin-bottom:16px"><span class="lbl">새 비밀번호 확인</span>
+        <input class="inp" id="p_re" type="password"></label>
+      <button class="btn-solid" id="p_go">변경</button><span class="msg" id="p_msg"></span>
+      <p class="sm muted" style="margin-top:16px;line-height:1.7">변경 즉시 적용됩니다. 로그인 중인 계정의 비밀번호만 바뀝니다.</p></section>`;
+  }
+
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">설정</h1></div></div>
+    <div class="seg" id="stab" style="margin-bottom:16px">${TABS.map(t=>`<button data-t="${t}"${S.setTab===t?' class="on"':""}>${t}</button>`).join("")}</div>
+    ${body}`;
+  $("stab").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.setTab = b.dataset.t; vSettings(); };
+
+  if (S.setTab === "채널·매체") {
+    $("main").querySelectorAll("input[data-mid]").forEach(cb => cb.onchange = async () => {
+      await sb.from("media").update({ is_active: cb.checked }).eq("id", +cb.dataset.mid);
+      await loadMasters();
+    });
+  }
+  if (S.setTab === "캠페인") {
+    const auto = () => {
+      if ($("k_edit").checked) return;
+      const md = S.media.find(x=>x.id===+$("k_md").value);
+      if (!md) { $("k_cd").value=""; return; }
+      const pre = `${md.code}-${yymm()}-`; let n = 1;
+      while (S.camps.some(c=>c.code===pre+String(n).padStart(3,"0"))) n++;
+      $("k_cd").value = pre+String(n).padStart(3,"0");
+    };
+    $("k_md").onchange = auto;
+    $("k_edit").onchange = (e) => { const f=$("k_cd"); f.readOnly=!e.target.checked;
+      f.style.background = e.target.checked?"#fff":"#F4F4F0"; f.style.color = e.target.checked?"inherit":"var(--muted)";
+      if (!e.target.checked) auto(); else f.focus(); };
+    $("k_go").onclick = async () => {
+      const m = $("k_msg");
+      if (!$("k_md").value) { m.className="msg err"; m.textContent="매체를 선택하세요."; return; }
+      if (!$("k_nm").value.trim()) { m.className="msg err"; m.textContent="캠페인 이름을 입력하세요."; return; }
+      $("k_go").disabled = true;
+      const { error } = await sb.from("campaigns").insert({
+        code:$("k_cd").value.toUpperCase(), media_id:+$("k_md").value, name:$("k_nm").value.trim() });
+      $("k_go").disabled = false;
+      if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+      vSettings();
+    };
+    $("main").querySelectorAll("button[data-kdel]").forEach(b => b.onclick = async () => {
+      if (!confirm("이 캠페인을 삭제할까요?")) return;
+      const { error } = await sb.from("campaigns").delete().eq("id", +b.dataset.kdel);
+      if (error) { $("k_msg").className="msg err"; $("k_msg").textContent="연결된 자료가 있어 삭제할 수 없습니다."; return; }
+      vSettings();
+    });
+  }
+  if (S.setTab === "소재") {
+    const auto = () => {
+      if ($("r_edit").checked) return;
+      const pre = `CR-${yymm()}-`; let n = 1;
+      while (S.creas.some(c=>c.code===pre+String(n).padStart(3,"0"))) n++;
+      $("r_cd").value = pre+String(n).padStart(3,"0");
+    };
+    auto();
+    $("r_edit").onchange = (e) => { const f=$("r_cd"); f.readOnly=!e.target.checked;
+      f.style.background = e.target.checked?"#fff":"#F4F4F0"; f.style.color = e.target.checked?"inherit":"var(--muted)";
+      if (!e.target.checked) auto(); else f.focus(); };
+    $("r_go").onclick = async () => {
+      const m = $("r_msg");
+      if (!$("r_ti").value.trim()) { m.className="msg err"; m.textContent="소재 제목을 입력하세요."; return; }
+      $("r_go").disabled = true;
+      const { error } = await sb.from("creatives").insert({
+        code:$("r_cd").value.toUpperCase(), title:$("r_ti").value.trim(), type:$("r_ty").value,
+        campaign_id:$("r_cp").value?+$("r_cp").value:null });
+      $("r_go").disabled = false;
+      if (error) { m.className="msg err"; m.textContent="저장하지 못했습니다: "+error.message; return; }
+      vSettings();
+    };
+    $("main").querySelectorAll("button[data-rdel]").forEach(b => b.onclick = async () => {
+      if (!confirm("이 소재를 삭제할까요?")) return;
+      const { error } = await sb.from("creatives").delete().eq("id", +b.dataset.rdel);
+      if (error) { $("r_msg").className="msg err"; $("r_msg").textContent="연결된 자료가 있어 삭제할 수 없습니다."; return; }
+      vSettings();
+    });
+  }
+  if (S.setTab === "UTM 링크") {
+    const build = () => {
+      const base = $("u_base").value.trim();
+      const md = S.media.find(x=>x.id===+$("u_md2").value);
+      if (!base || !md) return "";
+      const ch = S.channels.find(c=>c.id===md.channel_id);
+      const cp = S.camps.find(c=>c.id===+$("u_cp").value);
+      const cr = S.creas.find(c=>c.id===+$("u_cr").value);
+      const p = new URLSearchParams();
+      p.set("utm_source",(ch?.code??"").toLowerCase());
+      p.set("utm_medium",(md.code.split("-").slice(1).join("-")||md.code).toLowerCase());
+      if (cp) p.set("utm_campaign", cp.code.toLowerCase());
+      if (cr) p.set("utm_content", cr.code.toLowerCase());
+      return base + (base.includes("?")?"&":"?") + p.toString();
+    };
+    const upd = () => { $("u_out").textContent = build() || "랜딩 주소와 매체를 선택하면 링크가 만들어집니다."; };
+    ["u_base","u_md2","u_cp","u_cr"].forEach(id => { $(id).oninput = upd; $(id).onchange = upd; });
+    $("u_cpy").onclick = () => { const u = build(); if (!u) return;
+      navigator.clipboard.writeText(u); $("u_msg").textContent = "링크를 복사했습니다."; };
+  }
+  if (S.setTab === "계정") {
+    $("p_go").onclick = async () => {
+      const m = $("p_msg"), a = $("p_new").value, b = $("p_re").value;
+      if (a.length < 6) { m.className="msg err"; m.textContent="6자 이상 입력하세요."; return; }
+      if (a !== b) { m.className="msg err"; m.textContent="두 비밀번호가 다릅니다."; return; }
+      $("p_go").disabled = true;
+      const { error } = await sb.auth.updateUser({ password:a });
+      $("p_go").disabled = false;
+      if (error) { m.className="msg err"; m.textContent="변경하지 못했습니다: "+error.message; return; }
+      $("p_new").value=""; $("p_re").value="";
+      m.className="msg"; m.textContent="비밀번호를 변경했습니다.";
+    };
+  }
+}
+
+/* ---------- router ---------- */
+async function route() {
+  const fn = { dashboard:vDashboard, leads:vLeads, costs:vCosts, ads:vAds, contracts:vContracts,
+    performance:vPerformance, pnl:vPnl, data:vData, settings:vSettings }[S.page];
+  try { await fn(); }
+  catch (e) { $("main").innerHTML = `<div class="card empty">화면을 불러오지 못했습니다.<br><span class="sm">${esc(e.message)}</span></div>`; }
+}
+
+/* ---------- boot ---------- */
+if (!SUPABASE_URL.startsWith("http") || SUPABASE_ANON.length < 30) {
+  configView();
+} else {
+  const { data } = await sb.auth.getSession();
+  S.user = data.session?.user ?? null;
+  sb.auth.onAuthStateChange(async (_e, s) => {
+    const was = !!S.user;
+    S.user = s?.user ?? null;
+    if (!S.user) { if (timer) clearInterval(timer); loginView(); return; }
+    if (!was) { await loadMasters(); shell(); route(); }
+  });
+  if (S.user) { await loadMasters(); shell(); route(); } else loginView();
+}
+</script>
+</body>
+</html>
