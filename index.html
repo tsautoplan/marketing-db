@@ -167,6 +167,7 @@ const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
 
 const S = {
   user: null, role: "marketer", page: "dashboard", days: 30,
+  dash: { mode:"30", from:"", to:"" },
   channels: [], media: [], models: [], camps: [], creas: [],
   leadTab: "목록", leadFilter: { q:"", ch:"", st:"" }, sel: new Set(),
   up: { channel_id:"", media_id:"", file:"", headers:[], rows:[], map:{}, check:null, queue:null },
@@ -454,18 +455,39 @@ const mdName = (id) => S.media.find(m => m.id === id)?.name ?? "";
    대시보드
    ============================================================ */
 async function vDashboard() {
-  $("main").innerHTML = `<div class="head"><div><h1 class="h1">대시보드</h1>
-    <p class="sm muted" style="margin-top:4px">최근 ${S.days}일 기준</p></div>
-    <div class="seg" id="rng">${[7,30,90].map(n=>`<button data-n="${n}"${S.days===n?' class="on"':""}>${n}일</button>`).join("")}</div></div>
-    <div id="db" class="muted">불러오는 중</div>`;
-  $("rng").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.days = +b.dataset.n; vDashboard(); };
+  const D = S.dash;
+  if (!D.from) { D.from = daysAgo(30); D.to = ymd(new Date()); }
+  const MODES = [["7","7일"],["30","30일"],["90","90일"],["이번달","이번달"],["저번달","저번달"],["직접","직접"]];
 
-  const [d,g,h] = await Promise.all([
-    sb.from("v_perf_daily").select("*").gte("d", daysAgo(S.days)).order("d"),
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">대시보드</h1>
+    <p class="sm muted" style="margin-top:4px">${esc(D.from)} ~ ${esc(D.to)}</p></div>
+    <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+      <div class="seg" id="rng">${MODES.map(([v,l])=>`<button data-n="${v}"${D.mode===v?' class="on"':""}>${l}</button>`).join("")}</div>
+      <input class="inp" type="date" id="d_from" value="${D.from}" style="width:140px"${D.mode!=="직접"?" disabled":""}>
+      <input class="inp" type="date" id="d_to" value="${D.to}" style="width:140px"${D.mode!=="직접"?" disabled":""}>
+    </div></div>
+    <div id="db" class="muted">불러오는 중</div>`;
+
+  $("rng").onclick = (e) => {
+    const b = e.target.closest("button"); if (!b) return;
+    D.mode = b.dataset.n;
+    if (D.mode === "이번달") [D.from, D.to] = monthRange(0);
+    else if (D.mode === "저번달") [D.from, D.to] = monthRange(-1);
+    else if (D.mode !== "직접") { D.from = daysAgo(+D.mode); D.to = ymd(new Date()); }
+    vDashboard();
+  };
+  $("d_from").onchange = (e) => { D.from = e.target.value; vDashboard(); };
+  $("d_to").onchange   = (e) => { D.to   = e.target.value; vDashboard(); };
+
+  const [d, g, mt, ld] = await Promise.all([
+    sb.from("v_perf_daily").select("*").gte("d", D.from).lte("d", D.to).order("d"),
     sb.from("v_channel_grade").select("*"),
-    sb.from("v_hour_heatmap").select("*")
+    sb.from("v_meta_daily").select("*").gte("d", D.from).lte("d", D.to).order("d"),
+    sb.from("leads").select("inflow_at,is_duplicate").gte("inflow_at", D.from).lte("inflow_at", D.to + "T23:59:59").limit(20000)
   ]);
-  const daily = d.data ?? [], grades = g.data ?? [], heat = h.data ?? [];
+  const daily = d.data ?? [], grades = g.data ?? [];
+  const meta = mt.error ? [] : (mt.data ?? []);
+  const leads = ld.data ?? [];
 
   const t = daily.reduce((a,r)=>({
     total:a.total+r.total_leads, valid:a.valid+r.valid_leads, dup:a.dup+r.dup_leads,
@@ -475,13 +497,51 @@ async function vDashboard() {
   const cps = t.ct>0 && t.cost>0 ? t.cost/t.ct : null;
   const dupRate = t.total>0 ? t.dup/t.total*100 : null;
 
+  /* 일간 추이 (전체) */
   const tm = new Map();
-  daily.forEach(r => { const c = tm.get(r.d) ?? {d:r.d,leads:0}; c.leads += r.valid_leads; tm.set(r.d,c); });
+  daily.forEach(r => { const c = tm.get(r.d) ?? {d:r.d, k:r.d.slice(5), leads:0, cost:0};
+    c.leads += r.valid_leads; c.cost += Number(r.cost); tm.set(r.d,c); });
   const trend = Array.from(tm.values()).sort((a,b)=>a.d.localeCompare(b.d));
 
+  /* 채널별 합계 + 채널별 추이 */
   const cm = new Map();
-  daily.forEach(r => { const c = cm.get(r.channel_code) ?? {name:r.channel_name,leads:0}; c.leads += r.valid_leads; cm.set(r.channel_code,c); });
+  daily.forEach(r => {
+    const c = cm.get(r.channel_id) ?? { id:r.channel_id, name:r.channel_name, leads:0, cost:0, series:new Map() };
+    c.leads += r.valid_leads; c.cost += Number(r.cost);
+    const sx = c.series.get(r.d) ?? { d:r.d, k:r.d.slice(5), leads:0 };
+    sx.leads += r.valid_leads; c.series.set(r.d, sx);
+    cm.set(r.channel_id, c);
+  });
   const byCh = Array.from(cm.values()).sort((a,b)=>b.leads-a.leads);
+
+  /* 메타 소재별 */
+  const am = new Map();
+  meta.forEach(r => {
+    const x = am.get(r.ad_name) ?? { ad:r.ad_name, spend:0, res:0, imp:0, budget:null, days:new Set() };
+    x.spend += Number(r.spend); x.res += Number(r.results); x.imp += Number(r.impressions);
+    if (r.adset_budget) x.budget = Math.max(x.budget ?? 0, Number(r.adset_budget));
+    x.days.add(r.d); am.set(r.ad_name, x);
+  });
+  const topAds = Array.from(am.values()).sort((a,b)=>b.spend-a.spend).slice(0,8);
+  const maxSpend = Math.max(1, ...topAds.map(x=>x.spend));
+  const avgCpl = (() => { const S1 = topAds.reduce((a,x)=>a+x.spend,0), R1 = topAds.reduce((a,x)=>a+x.res,0);
+    return R1 ? S1/R1 : null; })();
+
+  const mtm = new Map();
+  meta.forEach(r => { const x = mtm.get(r.d) ?? { d:r.d, k:r.d.slice(5), spend:0, res:0 };
+    x.spend += Number(r.spend); x.res += Number(r.results); mtm.set(r.d, x); });
+  const mtrend = Array.from(mtm.values()).sort((a,b)=>a.d.localeCompare(b.d));
+
+  /* 시간대별 (기간 내) */
+  const hm = [];
+  { const acc = new Map();
+    leads.forEach(l => { const dt = new Date(l.inflow_at);
+      const k = dt.getDay()+"-"+dt.getHours();
+      const x = acc.get(k) ?? { dow:dt.getDay(), hour:dt.getHours(), valid_leads:0 };
+      if (!l.is_duplicate) x.valid_leads++; acc.set(k,x); });
+    acc.forEach(v=>hm.push(v)); }
+  const hourly = (() => { const a = Array.from({length:24},(_,h)=>({k:h+"시", h, leads:0}));
+    hm.forEach(x => { a[x.hour].leads += x.valid_leads; }); return a; })();
 
   const ranked = [...grades].sort((a,b)=>(b.score??-1)-(a.score??-1)||b.valid_leads-a.valid_leads);
 
@@ -490,30 +550,67 @@ async function vDashboard() {
       ${[["전체 DB",num(t.total),""],["유효 DB",num(t.valid),`중복 ${num(t.dup)}건 제외`],
          ["중복률",pct(dupRate),""],["광고비",won(t.cost),""],
          ["유효 CPA",won(cpa),"광고비 ÷ 유효DB"],["CPS",won(cps),`계약 ${num(t.ct)}건`]]
-        .map(([l,v,s])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div>${s?`<div class="sm muted" style="margin-top:4px">${s}</div>`:""}</div>`).join("")}
+        .map(([l,v,ss])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div>${ss?`<div class="sm muted" style="margin-top:4px">${ss}</div>`:""}</div>`).join("")}
     </div>
+
     <section class="card p16" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
-        <h2 class="h2">채널 등급</h2><span class="sm muted">최근 30일 · 객단가 대비 유입량</span></div>
+        <h2 class="h2">채널 등급</h2><span class="sm muted">최근 30일 고정 기준</span></div>
       ${ranked.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
-        ${ranked.map(g=>`<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
+        ${ranked.map(gx=>`<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-            <span style="font-size:13px;font-weight:500">${esc(g.name)}</span>${badge(g.grade)}</div>
-          <div class="sm" style="display:flex;justify-content:space-between"><span class="muted">유효 DB</span><span>${num(g.valid_leads)}</span></div>
-          <div class="sm" style="display:flex;justify-content:space-between;margin-top:3px"><span class="muted">CPA</span><span>${g.cpa?won(g.cpa):"-"}</span></div>
-          <div class="sm" style="display:flex;justify-content:space-between;margin-top:3px"><span class="muted">점수</span><span>${g.score ?? "-"}</span></div>
-          <div class="sm muted" style="border-top:1px solid var(--line);margin-top:9px;padding-top:8px">${g.grade?GL[g.grade]:"비용 없음 · 유입량만 비교"}</div>
-        </div>`).join("")}</div>` : `<div class="empty">아직 집계할 데이터가 없습니다. DB 원장에서 엑셀을 업로드하세요.</div>`}
+            <span style="font-size:13px;font-weight:500">${esc(gx.name)}</span>${badge(gx.grade)}</div>
+          <div class="sm" style="display:flex;justify-content:space-between"><span class="muted">유효 DB</span><span>${num(gx.valid_leads)}</span></div>
+          <div class="sm" style="display:flex;justify-content:space-between;margin-top:3px"><span class="muted">CPA</span><span>${gx.cpa?won(gx.cpa):"-"}</span></div>
+          <div class="sm muted" style="border-top:1px solid var(--line);margin-top:9px;padding-top:8px">${gx.grade?GL[gx.grade]:"비용 없음 · 유입량만 비교"}</div>
+        </div>`).join("")}</div>` : `<div class="empty">아직 집계할 데이터가 없습니다.</div>`}
     </section>
+
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
       <section class="card p16"><h2 class="h2" style="margin-bottom:12px">일간 유효 DB 추이</h2>${svgLine(trend,"leads")}</section>
       <section class="card p16"><h2 class="h2" style="margin-bottom:12px">채널별 유입량</h2>${svgBar(byCh)}</section>
     </div>
-    <section class="card p16">
+
+    <section class="card p16" style="margin-bottom:12px">
+      <h2 class="h2" style="margin-bottom:12px">채널별 추이</h2>
+      ${byCh.length ? `<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(300px,1fr))">
+        ${byCh.map(c=>{
+          const sr = Array.from(c.series.values()).sort((a,b)=>a.d.localeCompare(b.d));
+          return `<div style="border:1px solid var(--line);border-radius:6px;padding:12px">
+            <div style="display:flex;justify-content:space-between;margin-bottom:8px">
+              <span style="font-size:13px;font-weight:500">${esc(c.name)}</span>
+              <span class="sm muted">유효 ${num(c.leads)}${c.cost?` · ${won(c.cost)}`:""}</span></div>
+            ${svgLine(sr,"leads")}</div>`;
+        }).join("")}</div>` : `<div class="empty">기간 내 유입이 없습니다.</div>`}
+    </section>
+
+    <section class="card p16" style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:12px">
-        <h2 class="h2">요일 · 시간대 유입</h2><span class="sm muted">전체 기간 누적</span></div>
-      ${heatmap(heat)}
-    </section>`;
+        <h2 class="h2">메타 소재별 성과</h2><span class="sm muted">지출 상위 8개 · 광고비 &gt; 소재별 성과에서 전체 확인</span></div>
+      ${topAds.length ? `
+        <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:14px">
+          <div><div class="lbl" style="margin-bottom:6px">일별 지출</div>${svgLine(mtrend,"spend")}</div>
+          <div><div class="lbl" style="margin-bottom:6px">일별 결과(유입)</div>${svgLine(mtrend,"res","#0E7A5F")}</div>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:10px">
+        ${topAds.map(x=>{
+          const cpl = x.res ? x.spend/x.res : null;
+          const warn = cpl != null && avgCpl != null && cpl > avgCpl*1.3;
+          const good = cpl != null && avgCpl != null && cpl <= avgCpl;
+          return `<div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:10px">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.ad)}</span>
+              <span class="muted" style="white-space:nowrap">${won(x.spend)} · 결과 ${num(x.res)} ·
+                <b style="color:${warn?"var(--gD)":good?"var(--gA)":"inherit"}">${cpl?won(cpl):"-"}</b>${x.budget?` · 예산 ${won(x.budget)}/일`:""}</span></div>
+            <div class="bar-bg"><div class="bar-fg" style="width:${(x.spend/maxSpend*100).toFixed(1)}%;background:${warn?"var(--gD)":"var(--ink)"}"></div></div>
+          </div>`;}).join("")}</div>`
+        : `<div class="empty">기간 내 메타 실적이 없습니다. 광고비 &gt; 메타 리포트 업로드에서 파일을 올려주세요.</div>`}
+    </section>
+
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">시간대별 유입</h2>${svgLine(hourly,"leads","#2563A8")}</section>
+      <section class="card p16"><h2 class="h2" style="margin-bottom:12px">요일 · 시간대</h2>${heatmap(hm)}</section>
+    </div>`;
 }
 
 /* ============================================================
@@ -729,6 +826,14 @@ async function runQueue(files) {
       if (aoa.length < 2) { it.state="skip"; it.msg="데이터 없음"; renderQueue(Q); continue; }
       let hi = 0;
       for (let r=0;r<Math.min(aoa.length,10);r++) if (aoa[r].filter(x=>String(x).trim()).length >= 2) { hi = r; break; }
+      const MP = parseMetaAoa(aoa);
+      if (MP) {
+        it.msg = `메타 실적 · ${num(MP.rows.length)}행 저장 중`; renderQueue(Q);
+        const r = await pushMeta(MP.rows, files[i].name, true);
+        if (!r.ok) { it.state="err"; it.msg = r.err || "저장 실패"; }
+        else { it.state="ok"; it.msg = `메타 실적 ${num(r.ok)}행 · ${won(MP.spend)} · 결과 ${num(MP.results)}건`; }
+        renderQueue(Q); continue;
+      }
       const headers = aoa[hi].map(x => String(x).trim());
       const rows = aoa.slice(hi+1).filter(r => r.some(x => String(x).trim() !== ""));
       const map = guessMap(headers);
@@ -797,6 +902,37 @@ async function readFile(file) {
     if (aoa.length < 2) { m.className="msg err"; m.textContent="데이터가 없는 파일입니다."; return; }
     let hi = 0;
     for (let i=0;i<Math.min(aoa.length,10);i++) if (aoa[i].filter(x=>String(x).trim()).length >= 2) { hi = i; break; }
+    // 메타 광고 리포트면 자동으로 광고 실적으로 처리
+    if (isMetaHeaders(aoa[hi].map(x => String(x).trim())) || parseMetaAoa(aoa)) {
+      const P = parseMetaAoa(aoa);
+      if (P) {
+        m.className="msg";
+        m.textContent = `메타 광고 리포트로 인식했습니다. ${P.from}~${P.to} · 소재 ${P.ads.length}개 · ${won(P.spend)}`;
+        $("u_step2").innerHTML = `<section class="card p16" style="border-color:var(--accent)">
+          <h2 class="h2" style="margin-bottom:6px">메타 광고 리포트로 인식했습니다</h2>
+          <p class="sm muted" style="margin-bottom:14px;line-height:1.7">
+            이 파일은 고객 DB가 아니라 광고 실적 파일입니다. 아래 버튼을 누르면
+            일자 · 소재 · 플랫폼 · 노출위치 · 결과 · 예산까지 자동 정리되어 광고비에 저장됩니다.</p>
+          <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:14px">
+            ${[["기간",`${P.from}<br>~ ${P.to}`],["소재",num(P.ads.length)+"개"],["지출",won(P.spend)],
+               ["노출",num(P.imp)],["결과(유입)",num(P.results)+"건"]]
+              .map(([l,v])=>`<div style="border:1px solid var(--line);border-radius:6px;padding:10px">
+                <div class="lbl">${l}</div><div style="font-size:14px;font-weight:500;margin-top:4px;line-height:1.4">${v}</div></div>`).join("")}
+          </div>
+          <button class="btn-solid" id="u_meta_go">광고 실적으로 저장</button>
+          <span class="msg" id="u_meta_msg"></span></section>`;
+        $("u_step3").innerHTML = "";
+        $("u_meta_go").onclick = async () => {
+          $("u_meta_go").disabled = true;
+          $("u_meta_msg").className="msg"; $("u_meta_msg").textContent="저장 중";
+          const r = await pushMeta(P.rows, file.name, true);
+          if (!r.ok) { $("u_meta_msg").className="msg err"; $("u_meta_msg").textContent="저장하지 못했습니다: "+(r.err||""); $("u_meta_go").disabled=false; return; }
+          $("u_meta_msg").textContent = `${num(r.ok)}행 저장 완료. 광고비 화면으로 이동합니다.`;
+          setTimeout(() => { S.page="costs"; S.costTab="소재별 성과"; shell(); route(); }, 900);
+        };
+        return;
+      }
+    }
     S.up.file = file.name;
     S.up.headers = aoa[hi].map(x => String(x).trim());
     S.up.rows = aoa.slice(hi+1).filter(r => r.some(x => String(x).trim() !== ""));
@@ -1637,7 +1773,9 @@ const META_COLS = {
   imp:    ["노출","impressions"],
   reach:  ["도달","reach"],
   result: ["결과","results"],
-  deliv:  ["광고 게재","게재","delivery"]
+  deliv:  ["광고 게재","게재","delivery"],
+  budget: ["광고 세트 예산","광고세트 예산","ad set budget"],
+  btype:  ["광고 세트 예산 유형","budget type"]
 };
 
 function findCol(headers, keys) {
@@ -1653,6 +1791,52 @@ function findCol(headers, keys) {
     if (i >= 0) return i;
   }
   return -1;
+}
+
+function isMetaHeaders(H) {
+  return findCol(H, META_COLS.date) >= 0 && findCol(H, META_COLS.ad) >= 0 && findCol(H, META_COLS.spend) >= 0;
+}
+
+function parseMetaAoa(aoa) {
+  let hi = -1;
+  for (let i = 0; i < Math.min(aoa.length, 8); i++) {
+    const H = aoa[i].map(x => String(x).trim());
+    if (H.filter(x => x).length >= 4 && isMetaHeaders(H)) { hi = i; break; }
+  }
+  if (hi < 0) return null;
+  const H = aoa[hi].map(x => String(x).trim());
+  const C = {}; Object.entries(META_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
+  const mediaByCode = new Map(S.media.map(x => [x.code, x]));
+  const rows = []; let bad = 0;
+  aoa.slice(hi+1).forEach(r => {
+    if (!r.some(x => String(x).trim() !== "")) return;
+    const d = toDate(r[C.date]);
+    const ad = String(r[C.ad] ?? "").trim();
+    if (!d || !ad) { bad++; return; }
+    const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
+    const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
+    const md = mediaByCode.get(placeToMedia(plat, place));
+    rows.push({
+      stat_date: d, ad_name: ad,
+      adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
+      platform: plat || null, placement: place || null,
+      device: C.device >= 0 ? String(r[C.device] ?? "").trim() || null : null,
+      channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
+      spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
+      reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
+      results: C.result >= 0 ? toNum(r[C.result]) : 0,
+      adset_budget: C.budget >= 0 ? (toNum(r[C.budget]) || null) : null,
+      budget_type: C.btype >= 0 ? String(r[C.btype] ?? "").trim() || null : null,
+      delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
+    });
+  });
+  if (!rows.length) return null;
+  const dates = rows.map(r=>r.stat_date).sort();
+  return { rows, bad, from: dates[0], to: dates[dates.length-1],
+    ads: Array.from(new Set(rows.map(r=>r.ad_name))),
+    spend: rows.reduce((a,r)=>a+r.spend,0),
+    imp: rows.reduce((a,r)=>a+r.impressions,0),
+    results: rows.reduce((a,r)=>a+r.results,0) };
 }
 
 /* 플랫폼 + 노출위치 → 매체코드 */
@@ -1752,56 +1936,21 @@ async function runMetaQueue(files) {
   S.meta.queue = Q;
   $("mt_prev").innerHTML = "";
   renderMetaQueue(Q);
-
   const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
-  const mediaByCode = new Map(S.media.map(x => [x.code, x]));
-
   for (let i = 0; i < files.length; i++) {
     const it = Q.items[i];
     it.state = "run"; it.msg = "읽는 중"; renderMetaQueue(Q);
     try {
       const wb = XLSX.read(await files[i].arrayBuffer(), { type:"array", cellDates:true });
       const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
-      if (aoa.length < 2) { it.state="skip"; it.msg="데이터 없음"; renderMetaQueue(Q); continue; }
-      let hi = 0;
-      for (let r=0;r<Math.min(aoa.length,8);r++) if (aoa[r].filter(x=>String(x).trim()).length >= 4) { hi = r; break; }
-      const H = aoa[hi].map(x => String(x).trim());
-      const C = {}; Object.entries(META_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
-      if (C.date < 0 || C.ad < 0 || C.spend < 0) { it.state="skip"; it.msg="메타 리포트 형식 아님"; renderMetaQueue(Q); continue; }
-
-      const rows = [];
-      aoa.slice(hi+1).forEach(r => {
-        if (!r.some(x => String(x).trim() !== "")) return;
-        const d = toDate(r[C.date]);
-        const ad = String(r[C.ad] ?? "").trim();
-        if (!d || !ad) return;
-        const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
-        const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
-        const md = mediaByCode.get(placeToMedia(plat, place));
-        rows.push({
-          stat_date:d, ad_name:ad,
-          adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
-          platform: plat || null, placement: place || null,
-          device: C.device >= 0 ? String(r[C.device] ?? "").trim() || null : null,
-          channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
-          spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
-          reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
-          results: C.result >= 0 ? toNum(r[C.result]) : 0,
-          delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
-        });
-      });
-      if (!rows.length) { it.state="skip"; it.msg="인식된 행 없음"; renderMetaQueue(Q); continue; }
-
-      const dates = rows.map(r=>r.stat_date).sort();
-      it.spend = rows.reduce((a,r)=>a+r.spend,0);
-      it.res = rows.reduce((a,r)=>a+r.results,0);
-      it.msg = `${dates[0]}~${dates[dates.length-1]} · ${num(rows.length)}행 저장 중`; renderMetaQueue(Q);
-
-      const saved = await pushMeta(rows, files[i].name, true);
+      const P = parseMetaAoa(aoa);
+      if (!P) { it.state="skip"; it.msg="메타 리포트 형식 아님"; renderMetaQueue(Q); continue; }
+      it.spend = P.spend; it.res = P.results;
+      it.msg = `${P.from}~${P.to} · ${num(P.rows.length)}행 저장 중`; renderMetaQueue(Q);
+      const saved = await pushMeta(P.rows, files[i].name, true);
       it.rows = saved.ok;
       if (!saved.ok) { it.state="err"; it.msg = saved.err || "저장 실패"; }
-      else { it.state="ok";
-        it.msg = `${dates[0]}~${dates[dates.length-1]} · ${num(saved.ok)}행 · ${won(it.spend)} · 결과 ${num(it.res)}건`; }
+      else { it.state="ok"; it.msg = `${P.from}~${P.to} · ${num(saved.ok)}행 · ${won(P.spend)} · 결과 ${num(P.results)}건`; }
     } catch (e) { it.state="err"; it.msg = e.message; }
     renderMetaQueue(Q);
   }
@@ -1858,56 +2007,9 @@ async function readMeta(file) {
     const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
     const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true });
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
-    if (aoa.length < 2) { m.className="msg err"; m.textContent="데이터가 없는 파일입니다."; return; }
-
-    let hi = 0;
-    for (let i=0;i<Math.min(aoa.length,8);i++)
-      if (aoa[i].filter(x=>String(x).trim()).length >= 4) { hi = i; break; }
-    const H = aoa[hi].map(x => String(x).trim());
-
-    const C = {};
-    Object.entries(META_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
-    if (C.date < 0 || C.ad < 0 || C.spend < 0) {
-      m.className="msg err";
-      m.textContent = "메타 리포트 형식이 아닙니다. 보고 시작 · 광고 이름 · 지출 금액 열이 필요합니다.";
-      return;
-    }
-
-    const mediaByCode = new Map(S.media.map(x => [x.code, x]));
-    const rows = [], bad = [];
-    aoa.slice(hi+1).forEach(r => {
-      if (!r.some(x => String(x).trim() !== "")) return;
-      const d = toDate(r[C.date]);
-      const ad = String(r[C.ad] ?? "").trim();
-      if (!d || !ad) { bad.push(r); return; }
-      const plat = C.plat >= 0 ? String(r[C.plat] ?? "").trim() : "";
-      const place = C.place >= 0 ? String(r[C.place] ?? "").trim() : "";
-      const code = placeToMedia(plat, place);
-      const md = mediaByCode.get(code);
-      rows.push({
-        stat_date: d, ad_name: ad,
-        adset_name: C.adset >= 0 ? String(r[C.adset] ?? "").trim() || null : null,
-        platform: plat || null, placement: place || null,
-        device: C.device >= 0 ? String(r[C.device] ?? "").trim() || null : null,
-        channel_id: md?.channel_id ?? null, media_id: md?.id ?? null,
-        spend: toNum(r[C.spend]), impressions: toNum(r[C.imp]),
-        reach: C.reach >= 0 ? toNum(r[C.reach]) : 0,
-        results: C.result >= 0 ? toNum(r[C.result]) : 0,
-        delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
-      });
-    });
-
-    if (!rows.length) { m.className="msg err"; m.textContent="인식된 행이 없습니다."; return; }
-
-    const dates = rows.map(r=>r.stat_date).sort();
-    S.meta.parsed = {
-      file: file.name, rows, bad: bad.length,
-      from: dates[0], to: dates[dates.length-1],
-      ads: Array.from(new Set(rows.map(r=>r.ad_name))),
-      spend: rows.reduce((a,r)=>a+r.spend,0),
-      imp: rows.reduce((a,r)=>a+r.impressions,0),
-      results: rows.reduce((a,r)=>a+r.results,0)
-    };
+    const P = parseMetaAoa(aoa);
+    if (!P) { m.className="msg err"; m.textContent="메타 리포트 형식이 아닙니다. 보고 시작 · 광고 이름 · 지출 금액 열이 필요합니다."; return; }
+    S.meta.parsed = { ...P, file: file.name };
     m.textContent = "";
     renderMetaPreview();
   } catch (err) { m.className="msg err"; m.textContent = "파일을 읽지 못했습니다: " + err.message; }
@@ -2007,8 +2109,9 @@ async function metaPerfView() {
 
   const inRange = new Map();
   daily.forEach(r => {
-    const x = inRange.get(r.ad_name) ?? { ad:r.ad_name, spend:0, imp:0, res:0, days:new Set() };
+    const x = inRange.get(r.ad_name) ?? { ad:r.ad_name, spend:0, imp:0, res:0, budget:null, days:new Set() };
     x.spend += Number(r.spend); x.imp += Number(r.impressions); x.res += Number(r.results); x.days.add(r.d);
+    if (r.adset_budget) x.budget = Math.max(x.budget ?? 0, Number(r.adset_budget));
     inRange.set(r.ad_name, x);
   });
   const list = Array.from(inRange.values()).sort((a,b)=>b.spend-a.spend);
@@ -2052,7 +2155,7 @@ async function metaPerfView() {
     <div class="card scroll" style="margin-bottom:12px">
       <div class="p16" style="padding-bottom:8px"><h2 class="h2">소재별 성과
         <span class="sm muted">${num(list.length)}개</span></h2></div>
-      <table><thead><tr><th>광고 소재</th><th>연결 카드</th><th>일수</th><th>지출</th><th>노출</th>
+      <table><thead><tr><th>광고 소재</th><th>연결 카드</th><th>일수</th><th>일일예산</th><th>지출</th><th>소진율</th><th>노출</th>
         <th>결과</th><th>건당 비용</th><th>CPM</th><th>비중</th></tr></thead>
       <tbody>${list.map(x=>{
         const c = cardBy.get(x.ad);
@@ -2060,7 +2163,9 @@ async function metaPerfView() {
           <td style="font-weight:500;max-width:280px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
           <td class="sm">${c?`${esc(c.title??"")} ${"★".repeat(c.rating)}`:`<button class="btn" data-link="${esc(x.ad)}" style="height:24px;padding:0 7px;font-size:11px">연결</button>`}</td>
           <td class="muted">${x.days.size}일</td>
+          <td class="muted">${x.budget?won(x.budget):"-"}</td>
           <td style="font-weight:500">${won(x.spend)}</td>
+          <td class="muted">${x.budget&&x.days.size?pct(x.spend/(x.budget*x.days.size)*100,0):"-"}</td>
           <td class="muted">${num(x.imp)}</td>
           <td>${num(x.res)}</td>
           <td style="font-weight:500;${x.res&&T.res&&(x.spend/x.res)>(T.spend/T.res)*1.3?"color:var(--gD)":x.res?"color:var(--gA)":""}">${x.res?won(x.spend/x.res):"-"}</td>
