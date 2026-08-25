@@ -135,6 +135,7 @@ const SUPABASE_URL  = "https://gkbavdbwsssvxkqqibex.supabase.co";
 const SUPABASE_ANON  = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdrYmF2ZGJ3c3NzdnhrcXFpYmV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNTIwMjEsImV4cCI6MjEwMDcyODAyMX0.8ZLXlDT0xbDYimSYCl0gtsLpnRvOMhZ9fa8clw4Pl2A";
 /* ============================================================ */
 
+const DEFAULT_EMAIL = "tsauto1118@naver.com";
 const DEMO = false;
 const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
   auth: { persistSession: true, autoRefreshToken: true }
@@ -254,7 +255,7 @@ function toCsv(rows) {
 
 /* ---------- shell ---------- */
 const NAV = [
-  ["dashboard","대시보드"],["leads","DB 원장"],["costs","광고비"],["ads","광고 소재"],["contracts","계약"],
+  ["dashboard","대시보드"],["leads","DB 원장"],["costs","광고비"],["ads","META 광고소재"],["contracts","계약"],
   ["performance","성과분석"],["pnl","손익"],["data","자료관리"],["settings","설정"]
 ];
 
@@ -272,7 +273,11 @@ function shell() {
     </aside>
     <main id="main"></main></div>`;
   $("nav").onclick = (e) => { const b = e.target.closest("button"); if (!b) return; S.page = b.dataset.p; S.sel.clear(); shell(); route(); };
-  $("out").onclick = () => sb.auth.signOut();
+  $("out").onclick = async () => {
+    try { if (!confirm("로그아웃합니다. 저장한 로그인 정보도 지울까요?\n\n확인: 정보까지 삭제\n취소: 정보는 유지"))
+      { await sb.auth.signOut(); return; } localStorage.removeItem("mdb_login"); } catch(_) {}
+    await sb.auth.signOut();
+  };
   $("rf").onclick = () => hardRefresh();
   $("ar").onchange = (e) => { S.autoRefresh = e.target.checked; setTimer(); };
   setTimer();
@@ -292,23 +297,45 @@ async function hardRefresh() {
 }
 
 function loginView() {
+  const SAVE_KEY = "mdb_login";
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}"); } catch(_) {}
+  const em0 = saved.email ?? DEFAULT_EMAIL;
+  const pw0 = saved.pw ?? "";
+  const rm0 = saved.email ? true : false;
+
   $("app").innerHTML = `<div class="login"><div class="box">
     <div style="margin-bottom:28px"><div class="sm" style="letter-spacing:.18em;color:var(--muted)">MARKETING DB</div>
       <h1 style="font-size:19px;font-weight:500;margin-top:4px">마케팅 DB 관리</h1></div>
-    <input class="inp" id="em" type="email" placeholder="이메일" style="margin-bottom:8px" autofocus>
-    <input class="inp" id="pw" type="password" placeholder="비밀번호" style="margin-bottom:8px">
+    <input class="inp" id="em" type="email" placeholder="이메일" autocomplete="username"
+      value="${esc(em0)}" style="margin-bottom:8px">
+    <input class="inp" id="pw" type="password" placeholder="비밀번호" autocomplete="current-password"
+      value="${esc(pw0)}" style="margin-bottom:10px">
+    <label class="sm" style="display:flex;align-items:center;gap:6px;margin-bottom:12px;cursor:pointer;color:var(--muted)">
+      <input type="checkbox" id="rm"${rm0?" checked":""}> 이 브라우저에 로그인 정보 저장</label>
     <button class="btn-solid" id="go" style="width:100%">로그인</button>
     <p class="msg err" id="lm"></p>
     <p class="sm muted" style="margin-top:24px;line-height:1.6">계정은 Supabase 대시보드의 Authentication 메뉴에서 발급합니다. 비밀번호는 로그인 후 설정 &gt; 계정에서 변경할 수 있습니다.</p>
+    <p class="sm muted" style="margin-top:10px;line-height:1.6">공용 PC에서는 저장을 끄세요.</p>
   </div></div>`;
+
   const go = async () => {
     $("go").disabled = true; $("lm").textContent = "";
-    const { error } = await sb.auth.signInWithPassword({ email: $("em").value, password: $("pw").value });
-    if (error) $("lm").textContent = "로그인하지 못했습니다. 이메일과 비밀번호를 확인하세요.";
-    $("go").disabled = false;
+    const email = $("em").value.trim(), pw = $("pw").value;
+    const { error } = await sb.auth.signInWithPassword({ email, password: pw });
+    if (error) {
+      $("lm").textContent = "로그인하지 못했습니다. 이메일과 비밀번호를 확인하세요.";
+      $("go").disabled = false; return;
+    }
+    try {
+      if ($("rm").checked) localStorage.setItem(SAVE_KEY, JSON.stringify({ email, pw }));
+      else localStorage.removeItem(SAVE_KEY);
+    } catch(_) {}
   };
   $("go").onclick = go;
   $("pw").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  $("em").onkeydown = (e) => { if (e.key === "Enter") $("pw").focus(); };
+  ($("pw").value ? $("go") : $("pw")).focus();
 }
 
 function configView() {
@@ -899,8 +926,9 @@ function stars(n, id) {
 
 async function vAds() {
   const F = S.ads;
+  if (!F.from && F.period === "이번달") [F.from, F.to] = monthRange(0);
   $("main").innerHTML = `<div class="head">
-      <div><h1 class="h1">광고 소재</h1><p class="sm muted" style="margin-top:4px" id="asub"></p></div>
+      <div><h1 class="h1">META 광고소재</h1><p class="sm muted" style="margin-top:4px" id="asub">불러오는 중</p></div>
       <div style="display:flex;gap:8px;align-items:center">
         <div class="seg" id="a_view">
           <button data-v="리스트"${F.view==="리스트"?' class="on"':""}>리스트형</button>
@@ -970,18 +998,38 @@ function renderAdFilter() {
 
 async function loadAds() {
   const F = S.ads;
-  let q = sb.from("ad_creatives").select("*").eq("channel_id", F.channel_id);
-  if (F.from) q = q.gte("published_on", F.from);
-  if (F.to)   q = q.lte("published_on", F.to);
-  if (F.onoff) q = q.eq("is_on", F.onoff === "on");
-  const { data } = await q.order("published_on", { ascending: F.sort === "asc" }).limit(500);
-  let rows = data ?? [];
+  const setSub = (t) => { const el = $("asub"); if (el) el.textContent = t; };
+  const setBody = (h) => { const el = $("a_body"); if (el) el.innerHTML = h; };
 
+  let res;
+  try {
+    let q = sb.from("ad_creatives").select("*").eq("channel_id", F.channel_id);
+    if (F.from) q = q.gte("published_on", F.from);
+    if (F.to)   q = q.lte("published_on", F.to);
+    if (F.onoff) q = q.eq("is_on", F.onoff === "on");
+    res = await q.order("published_on", { ascending: F.sort === "asc" }).limit(500);
+  } catch (e) { res = { data: null, error: { message: e.message } }; }
+
+  if (res.error) {
+    const miss = /ad_creatives|does not exist|schema cache|relation/i.test(res.error.message ?? "");
+    setSub("");
+    setBody(`<div class="card p16" style="border-color:var(--gC)">
+      <div style="font-weight:500;color:var(--gC);margin-bottom:6px">자료를 불러오지 못했습니다</div>
+      <p class="sm" style="line-height:1.7">${esc(res.error.message ?? "알 수 없는 오류")}</p>
+      ${miss?`<p class="sm muted" style="margin-top:10px;line-height:1.7">
+        광고 소재 표가 아직 만들어지지 않았습니다.<br>
+        Supabase 대시보드 → SQL Editor 에서 <span class="mono">patch_03_ad_creatives.sql</span> 을 실행한 뒤
+        이 화면을 새로고침하세요.</p>`:""}
+    </div>`);
+    return;
+  }
+
+  let rows = res.data ?? [];
   if (F.rating !== "") {
     const r = +F.rating;
-    rows = r === 0 ? rows.filter(x=>x.rating===0)
-         : r === 5 ? rows.filter(x=>x.rating===5)
-         : rows.filter(x=>x.rating>=r);
+    rows = r === 0 ? rows.filter(x=>(x.rating??0)===0)
+         : r === 5 ? rows.filter(x=>(x.rating??0)===5)
+         : rows.filter(x=>(x.rating??0)>=r);
   }
   if (F.budget) {
     const [a,b] = F.budget.split("-");
@@ -1003,11 +1051,10 @@ async function loadAds() {
 
   const on = rows.filter(x=>x.is_on).length;
   const bud = rows.filter(x=>x.is_on).reduce((a,x)=>a+(x.daily_budget??0),0);
-  $("asub").textContent = `${num(rows.length)}건 · 운영 중 ${num(on)}건 · 일 예산 합계 ${won(bud)}`;
-
-  $("a_body").innerHTML = rows.length
+  setSub(`${num(rows.length)}건 · 운영 중 ${num(on)}건 · 일 예산 합계 ${won(bud)}`);
+  setBody(rows.length
     ? (F.view === "폴더" ? folderView(rows) : listView(rows))
-    : `<div class="card empty">해당 조건의 소재가 없습니다. 오른쪽 위 소재 추가로 등록하세요.</div>`;
+    : `<div class="card empty">해당 조건의 소재가 없습니다. 오른쪽 위 소재 추가로 등록하세요.</div>`);
   bindAdRows();
 }
 
@@ -1091,7 +1138,7 @@ function listView(rows) {
 }
 
 function bindAdRows() {
-  const B = $("a_body");
+  const B = $("a_body"); if (!B) return;
 
   B.querySelectorAll("input[data-on]").forEach(cb => cb.onchange = async () => {
     const card = B.querySelector(`[data-card="${cb.dataset.on}"]`);
