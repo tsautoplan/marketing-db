@@ -77,6 +77,30 @@ td{padding:8px 12px;font-size:13px;border-bottom:1px solid rgba(230,229,224,.7);
 .err{color:var(--gD)}
 .scroll{overflow-x:auto}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+/* 메뉴 드래그 */
+.nav button{position:relative;user-select:none}
+.nav button.drag{opacity:.4}
+.nav button.over-t{box-shadow:inset 0 2px 0 var(--accent)}
+.nav button.over-b{box-shadow:inset 0 -2px 0 var(--accent)}
+.nav button .grip{position:absolute;right:8px;top:50%;transform:translateY(-50%);
+  font-size:11px;letter-spacing:-1px;color:currentColor;opacity:0;transition:opacity .12s;cursor:grab}
+.nav button:hover .grip{opacity:.4}
+.nav button.on .grip{opacity:.5}
+.nav-reset{width:100%;margin-top:6px;font-size:11px;color:var(--muted);background:none;border:0;cursor:pointer;padding:4px}
+.nav-reset:hover{color:var(--ink);text-decoration:underline}
+/* 구분선·정렬·폴더 */
+.seg .vdiv{width:1px;align-self:stretch;background:var(--line);margin:3px 3px}
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--ink)}
+details.dgrp{border-bottom:1px solid var(--line)}
+details.dgrp:last-child{border-bottom:0}
+details.dgrp > summary{list-style:none;cursor:pointer;padding:11px 16px;display:flex;gap:12px;align-items:center;font-size:13px}
+details.dgrp > summary::-webkit-details-marker{display:none}
+details.dgrp > summary::marker{content:"";display:none}
+details.dgrp > summary .arr{transition:transform .15s;font-size:10px;color:var(--muted)}
+details.dgrp[open] > summary .arr{transform:rotate(90deg)}
+details.dgrp > summary:hover{background:#FAFAF7}
+
   /* 광고 소재 */
   .adc{transition:opacity .18s, filter .18s}
   .adc.off{opacity:.42;filter:grayscale(1) blur(.6px)}
@@ -2189,7 +2213,9 @@ async function metaPerfView() {
     sb.from("v_meta_creative").select("*"),
     sb.from("ad_creatives").select("id,title,meta_ad_name,rating,is_on")
   ]);
-  const daily = dl.error ? [] : (dl.data ?? []);
+  const rawDaily = dl.error ? [] : (dl.data ?? []);
+  const daily = rawDaily.filter(r =>
+    Number(r.spend) > 0 || Number(r.impressions) > 0 || Number(r.results) > 0);
   const cards = ac.error ? [] : (ac.data ?? []);
 
   if (!daily.length) {
@@ -2335,6 +2361,8 @@ function renderMpFilter() {
         <span class="vdiv"></span>
         <button data-d="이번달"${M.mode==="이번달"?' class="on"':""}>이번달</button>
         <button data-d="저번달"${M.mode==="저번달"?' class="on"':""}>지난달</button>
+        <span class="vdiv"></span>
+        <button data-d="전체"${M.mode==="전체"?' class="on"':""}>전체</button>
       </div>
       <label class="f" style="width:150px"><span class="lbl">시작일</span>
         <input class="inp" type="date" id="mp_from" value="${M.from}"></label>
@@ -2346,6 +2374,7 @@ function renderMpFilter() {
     M.mode = b.dataset.d;
     if (M.mode === "이번달") [M.from, M.to] = monthRange(0);
     else if (M.mode === "저번달") [M.from, M.to] = monthRange(-1);
+    else if (M.mode === "전체") { M.from = "2000-01-01"; M.to = ymd(new Date()); }
     else { M.from = daysAgo(+M.mode); M.to = ymd(new Date()); }
     metaPerfView();
   };
