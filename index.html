@@ -1946,6 +1946,7 @@ async function metaUploadView() {
         <label class="f" style="width:150px"><span class="lbl">종료일</span>
           <input class="inp" type="date" id="md_to" value="${ymd(new Date())}"></label>
         <button class="btn" id="md_check">확인</button>
+        <button class="btn" id="md_all" style="color:var(--gD)">전체 기간 선택</button>
       </div>
       <div id="md_prev" style="margin-top:12px"></div>
     </section>`;
@@ -1959,6 +1960,11 @@ async function metaUploadView() {
 
   if (S.meta.parsed) renderMetaPreview();
 
+  $("md_all").onclick = () => {
+    $("md_from").value = "2000-01-01";
+    $("md_to").value = ymd(new Date());
+    $("md_check").click();
+  };
   $("md_check").onclick = async () => {
     const from = $("md_from").value, to = $("md_to").value;
     const pv = $("md_prev");
@@ -2080,6 +2086,19 @@ async function pushMeta(rows, fileName, sync) {
     else merged.set(k, { ...r });
   });
   const payload = Array.from(merged.values()).map(r => ({ ...r, import_batch_id: batch?.id ?? null }));
+
+  // 형식이 달라도 이중 집계가 없도록:
+  // 이 파일이 담고 있는 기간 × 소재의 기존 데이터를 먼저 지우고 새 값으로 대체
+  {
+    const dts = rows.map(r => r.stat_date).sort();
+    const dFrom = dts[0], dTo = dts[dts.length - 1];
+    const names = Array.from(new Set(rows.map(r => r.ad_name)));
+    for (let i = 0; i < names.length; i += 100) {
+      await sb.from("meta_ad_daily").delete()
+        .gte("stat_date", dFrom).lte("stat_date", dTo)
+        .in("ad_name", names.slice(i, i + 100));
+    }
+  }
 
   let ok = 0, err = "";
   for (let i = 0; i < payload.length; i += 300) {
