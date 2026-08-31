@@ -334,7 +334,7 @@ function toCsv(rows) {
 
 /* ---------- shell ---------- */
 const NAV_DEFAULT = [
-  ["dashboard","대시보드"],["leads","DB 원장"],["costs","광고비"],["ads","META 광고소재"],["contracts","계약"],
+  ["dashboard","대시보드"],["costs","광고비/성과분석"],["ads","META 광고소재"],["contracts","계약"],
   ["performance","성과분석"],["pnl","손익"],["data","자료관리"],["settings","설정"]
 ];
 const NAV_KEY = "mdb_nav_order";
@@ -1213,15 +1213,23 @@ async function vCosts() {
   const rows = data ?? [];
   const total = rows.reduce((a,r)=>a+Number(r.cost),0);
 
-  $("main").innerHTML = `<div class="head"><div><h1 class="h1">광고비</h1>
+  $("main").innerHTML = `<div class="head"><div><h1 class="h1">광고비/성과분석</h1>
     <p class="sm muted" style="margin-top:4px">최근 60일 · 합계 ${won(total)}</p></div></div>
     <div class="seg" id="c_tab" style="margin-bottom:16px">
-      ${["입력","메타 리포트 업로드","소재별 성과"].map(t=>`<button data-t="${t}"${S.costTab===t?' class="on"':""}>${t}</button>`).join("")}
+      ${["입력","메타 리포트 업로드","소재별 성과","DB 업로드","DB 목록","중복 분석","업로드 이력"].map(t=>`<button data-t="${t}"${S.costTab===t?' class="on"':""}>${t}</button>`).join("")}
     </div><div id="c_body"></div>`;
   $("c_tab").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; S.costTab=b.dataset.t; vCosts(); };
   if (!S.meta.from) { S.meta.from = daysAgo(S.meta.days); S.meta.to = ymd(new Date()); }
   if (S.costTab === "메타 리포트 업로드") return metaUploadView();
   if (S.costTab === "소재별 성과") return metaPerfView();
+  if (["DB 업로드","DB 목록","중복 분석","업로드 이력"].includes(S.costTab)) {
+    $("c_body").innerHTML = `<p class="sm muted" id="lsub" style="margin-bottom:12px"></p>
+      <div id="lbody" class="muted">불러오는 중</div>`;
+    if (S.costTab === "DB 업로드") { uploadView(); return; }
+    if (S.costTab === "DB 목록") { await leadList(); return; }
+    if (S.costTab === "중복 분석") { await dupView(); return; }
+    await batchView(); return;
+  }
 
   $("c_body").innerHTML = `
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-bottom:12px">
@@ -3024,8 +3032,9 @@ async function vSettings() {
 
 /* ---------- router ---------- */
 async function route() {
-  const fn = { dashboard:vDashboard, leads:vLeads, costs:vCosts, ads:vAds, contracts:vContracts,
+  const fn = { dashboard:vDashboard, costs:vCosts, ads:vAds, contracts:vContracts,
     performance:vPerformance, pnl:vPnl, data:vData, settings:vSettings }[S.page];
+  if (!fn) { S.page = "dashboard"; return route(); }
   try { await fn(); }
   catch (e) { $("main").innerHTML = `<div class="card empty">화면을 불러오지 못했습니다.<br><span class="sm">${esc(e.message)}</span></div>`; }
 }
