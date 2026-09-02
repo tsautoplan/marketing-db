@@ -1902,6 +1902,83 @@ function parseMetaAoa(aoa) {
     results: rows.reduce((a,r)=>a+r.results,0) };
 }
 
+const INSTA_COLS = {
+  id:    ["게시물 id","post id"],
+  link:  ["고유 링크","고유링크","permalink"],
+  time:  ["게시 시간","게시시간","publish time"],
+  type:  ["게시물 유형","post type"],
+  desc:  ["설명","caption","description"],
+  views: ["조회수","조회","views","plays"],
+  reach: ["도달수","도달","reach"],
+  likes: ["좋아요","likes"],
+  shares:["공유","shares"],
+  follows:["팔로우","follows"],
+  comments:["댓글","comments"],
+  saves: ["저장","saves"]
+};
+
+function parseInstaWhen(v) {
+  if (v instanceof Date && !isNaN(v)) return v;
+  const t = String(v ?? "").trim();
+  let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (m) return new Date(+m[3], +m[1]-1, +m[2], +(m[4]||0), +(m[5]||0));
+  const d = new Date(t.replace(/\./g,"-"));
+  return isNaN(d) ? null : d;
+}
+
+function parseInstaAoa(aoa) {
+  let hi = -1;
+  for (let i = 0; i < Math.min(aoa.length, 6); i++) {
+    const H = aoa[i].map(x => String(x).trim());
+    if (findCol(H, INSTA_COLS.link) >= 0 && findCol(H, INSTA_COLS.time) >= 0) { hi = i; break; }
+  }
+  if (hi < 0) return null;
+  const H = aoa[hi].map(x => String(x).trim());
+  const C = {}; Object.entries(INSTA_COLS).forEach(([k,keys]) => { C[k] = findCol(H, keys); });
+  const n = (r,k) => C[k] >= 0 ? toNum(r[C[k]]) : 0;
+  const rows = [];
+  aoa.slice(hi+1).forEach(r => {
+    const link = C.link >= 0 ? String(r[C.link] ?? "").trim() : "";
+    if (!link.startsWith("http")) return;
+    const when = C.time >= 0 ? parseInstaWhen(r[C.time]) : null;
+    let pid = "";
+    if (C.id >= 0 && r[C.id] != null && r[C.id] !== "") {
+      const raw = r[C.id];
+      pid = typeof raw === "number" ? raw.toFixed(0) : String(raw).replace(/[^0-9]/g,"");
+    }
+    rows.push({
+      post_link: link, post_id: pid || null,
+      posted_at: when ? when.toISOString() : null,
+      post_type: C.type >= 0 ? String(r[C.type] ?? "").trim() || null : null,
+      caption: C.desc >= 0 ? String(r[C.desc] ?? "").trim().slice(0, 2000) || null : null,
+      views: n(r,"views"), reach: n(r,"reach"), likes: n(r,"likes"), shares: n(r,"shares"),
+      follows: n(r,"follows"), comments: n(r,"comments"), saves: n(r,"saves")
+    });
+  });
+  if (!rows.length) return null;
+  const dts = rows.map(r => (r.posted_at ?? "").slice(0,10)).filter(Boolean).sort();
+  return { rows,
+    from: dts[0] ?? null, to: dts[dts.length-1] ?? null,
+    views: rows.reduce((a,r)=>a+r.views,0), reach: rows.reduce((a,r)=>a+r.reach,0),
+    likes: rows.reduce((a,r)=>a+r.likes,0) };
+}
+
+async function pushInsta(rows, fileName) {
+  const igId = S.channels.find(c => c.code === "IG")?.id ?? null;
+  const { data: batch } = await sb.from("import_batches").insert({
+    type:"insta", file_name:fileName, row_count:rows.length,
+    uploaded_by:S.user?.id ?? null, channel_id: igId
+  }).select("id").single();
+  const payload = rows.map(r => ({ ...r, channel_id: igId, import_batch_id: batch?.id ?? null }));
+  let ok = 0, err = "";
+  for (let i = 0; i < payload.length; i += 200) {
+    const n2 = Math.min(200, payload.length - i);
+    const { error } = await sb.from("insta_posts").upsert(payload.slice(i, i+n2), { onConflict:"post_link" });
+    if (error) err = error.message; else ok += n2;
+  }
+  return { ok, err };
+}
+
 /* 플랫폼 + 노출위치 → 매체코드 */
 function placeToMedia(plat, place) {
   const p = String(plat ?? "");
@@ -2069,8 +2146,16 @@ async function runMetaQueue(files) {
     try {
       const wb = XLSX.read(await files[i].arrayBuffer(), { type:"array", cellDates:true });
       const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+      const IP = parseInstaAoa(aoa);
+      if (IP) {
+        it.msg = `인스타 게시물 ${num(IP.rows.length)}개 저장 중`; renderMetaQueue(Q);
+        const r2 = await pushInsta(IP.rows, files[i].name);
+        if (!r2.ok) { it.state="err"; it.msg = r2.err || "저장 실패"; }
+        else { it.state="ok"; it.rows = r2.ok; it.msg = `인스타 게시물 ${num(r2.ok)}개 · 조회 ${num(IP.views)}`; }
+        renderMetaQueue(Q); continue;
+      }
       const P = parseMetaAoa(aoa);
-      if (!P) { it.state="skip"; it.msg="메타 리포트 형식 아님"; renderMetaQueue(Q); continue; }
+      if (!P) { it.state="skip"; it.msg="인식할 수 없는 형식"; renderMetaQueue(Q); continue; }
       it.spend = P.spend; it.res = P.results;
       it.msg = `${P.from}~${P.to} · ${num(P.rows.length)}행 저장 중`; renderMetaQueue(Q);
       const saved = await pushMeta(P.rows, files[i].name, true);
@@ -2152,8 +2237,35 @@ async function readMeta(file) {
     const XLSX = await import("https://cdn.jsdelivr.net/npm/xlsx@0.18.5/+esm");
     const wb = XLSX.read(await file.arrayBuffer(), { type:"array", cellDates:true });
     const aoa = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header:1, blankrows:false, defval:"" });
+    const IP = parseInstaAoa(aoa);
+    if (IP) {
+      m.textContent = "";
+      $("mt_prev").innerHTML = `<section class="card p16" style="border-color:var(--accent)">
+        <h2 class="h2" style="margin-bottom:6px">인스타그램 게시물 리포트로 인식했습니다</h2>
+        <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:14px">
+          ${[["게시물",num(IP.rows.length)+"개"],["기간",`${IP.from ?? "-"}<br>~ ${IP.to ?? "-"}`],
+             ["조회",num(IP.views)],["도달",num(IP.reach)],["좋아요",num(IP.likes)]]
+            .map(([l,v])=>`<div style="border:1px solid var(--line);border-radius:6px;padding:10px">
+              <div class="lbl">${l}</div><div style="font-size:14px;font-weight:500;margin-top:4px;line-height:1.4">${v}</div></div>`).join("")}
+        </div>
+        <p class="sm muted" style="margin-bottom:12px">같은 게시물(고유 링크 기준)은 새 값으로 자동 덮어쓰기됩니다.</p>
+        <button class="btn-solid" id="ip_go">저장하기</button>
+        <span class="msg" id="ip_msg"></span></section>`;
+      $("ip_go").onclick = async () => {
+        $("ip_go").disabled = true;
+        $("ip_msg").className="msg"; $("ip_msg").textContent="저장 중";
+        const r = await pushInsta(IP.rows, file.name);
+        if (!r.ok) { $("ip_msg").className="msg err"; $("ip_msg").textContent="저장하지 못했습니다: "+(r.err||""); $("ip_go").disabled=false; return; }
+        $("ip_msg").textContent = `${num(r.ok)}개 게시물을 저장했습니다.${r.err?" 일부 실패":""}`;
+        setTimeout(() => {
+          S.meta.chFilter = String(S.channels.find(c=>c.code==="IG")?.id ?? "");
+          S.costTab = "소재별 성과"; vCosts();
+        }, 900);
+      };
+      return;
+    }
     const P = parseMetaAoa(aoa);
-    if (!P) { m.className="msg err"; m.textContent="메타 리포트 형식이 아닙니다. 보고 시작 · 광고 이름 · 지출 금액 열이 필요합니다."; return; }
+    if (!P) { m.className="msg err"; m.textContent="인식할 수 없는 파일입니다. 메타 광고 리포트 또는 인스타그램 게시물 리포트를 올려주세요."; return; }
     S.meta.parsed = { ...P, file: file.name };
     m.textContent = "";
     renderMetaPreview();
@@ -2246,6 +2358,8 @@ const MP_COLS = [
 async function metaPerfView() {
   const M = S.meta;
   if (!M.sort) M.sort = { col:"spend", dir:"desc" };
+  const igId = S.channels.find(c => c.code === "IG")?.id;
+  if (M.chFilter && igId && +M.chFilter === igId) return instaPerfView();
   const [dl, cr, ac] = await Promise.all([
     fetchAllRows(() => {
       let q = sb.from("v_meta_daily").select("*").gte("d", M.from).lte("d", M.to).order("d");
@@ -2388,6 +2502,59 @@ async function metaPerfView() {
   $("mp_openall").onclick = () => $("c_body").querySelectorAll("details.dgrp").forEach(d=>d.open=true);
   $("mp_closeall").onclick = () => $("c_body").querySelectorAll("details.dgrp").forEach(d=>d.open=false);
   $("c_body").querySelectorAll("button[data-link]").forEach(b => b.onclick = () => linkCard(b.dataset.link));
+}
+
+async function instaPerfView() {
+  const M = S.meta;
+  const { data, error } = await fetchAllRows(() =>
+    sb.from("insta_posts").select("*")
+      .gte("posted_at", M.from).lte("posted_at", M.to + "T23:59:59")
+      .order("posted_at", { ascending:false }));
+  if (error) {
+    $("c_body").innerHTML = `<div id="mp_filter"></div><div class="card p16" style="border-color:var(--gC)">
+      <div style="font-weight:500;color:var(--gC);margin-bottom:6px">자료를 불러오지 못했습니다</div>
+      <p class="sm" style="line-height:1.7">${esc(error.message)}</p>
+      ${/insta_posts|does not exist|schema cache/i.test(error.message)?`<p class="sm muted" style="margin-top:10px">
+        Supabase SQL Editor에서 <span class="mono">patch_05_insta_posts.sql</span> 을 실행한 뒤 새로고침하세요.</p>`:""}
+    </div>`;
+    renderMpFilter(); return;
+  }
+  const rows = data ?? [];
+  if (!rows.length) {
+    $("c_body").innerHTML = `<div id="mp_filter"></div>
+      <div class="card empty">해당 기간의 인스타그램 게시물이 없습니다. 광고 리포트 업로드 탭에서 게시물 리포트를 올려주세요.</div>`;
+    renderMpFilter(); return;
+  }
+  const T = rows.reduce((a,r)=>({v:a.v+r.views, rc:a.rc+r.reach, l:a.l+r.likes,
+    c:a.c+r.comments, sv:a.sv+r.saves, sh:a.sh+r.shares, f:a.f+r.follows}),
+    {v:0,rc:0,l:0,c:0,sv:0,sh:0,f:0});
+
+  $("c_body").innerHTML = `
+    <div id="mp_filter"></div>
+    <div class="grid" style="grid-template-columns:repeat(6,1fr);margin-bottom:12px">
+      ${[["게시물",num(rows.length)+"개"],["조회수",num(T.v)],["도달수",num(T.rc)],
+         ["좋아요",num(T.l)],["댓글",num(T.c)],["저장",num(T.sv)]]
+        .map(([l,v])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("")}
+    </div>
+    <div class="card scroll">
+      <div class="p16" style="padding-bottom:8px"><h2 class="h2">게시물별 성과
+        <span class="sm muted">${num(rows.length)}개 · 게시일 최신순</span></h2></div>
+      <table><thead><tr><th>게시물 ID</th><th>게시시간</th><th>바로가기</th><th>게시물 유형</th>
+        <th>조회수</th><th>도달수</th><th>좋아요</th><th>공유</th><th>팔로우</th><th>댓글</th><th>저장</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr>
+        <td class="mono" style="font-size:11px">${esc(r.post_id ?? "-")}</td>
+        <td class="muted">${esc((r.posted_at ?? "").slice(0,16).replace("T"," "))}</td>
+        <td><a href="${esc(r.post_link)}" target="_blank" rel="noopener"
+          style="color:var(--accent);text-decoration:none;font-weight:500"
+          title="${esc((r.caption ?? "").slice(0,120))}">바로가기 →</a></td>
+        <td class="muted">${esc((r.post_type ?? "-").replace("Instagram ",""))}</td>
+        <td style="font-weight:500">${num(r.views)}</td>
+        <td>${num(r.reach)}</td><td>${num(r.likes)}</td><td>${num(r.shares)}</td>
+        <td>${num(r.follows)}</td><td>${num(r.comments)}</td><td>${num(r.saves)}</td></tr>`).join("")}
+      </tbody></table>
+      <p class="sm muted p16" style="padding-top:8px">바로가기에 마우스를 올리면 본문 미리보기가 뜹니다. 같은 게시물을 다시 올리면 최신 수치로 덮어쓰기됩니다.</p>
+    </div>`;
+  renderMpFilter();
 }
 
 function renderMpFilter() {
