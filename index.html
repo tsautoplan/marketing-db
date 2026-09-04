@@ -1351,8 +1351,11 @@ async function vAds() {
         </div>
         <button class="btn-solid" id="a_new">소재 추가</button>
       </div></div>
-    <div class="seg" id="a_ch" style="margin-bottom:12px">
-      ${S.channels.filter(c=>c.is_active).map(c=>`<button data-c="${c.id}"${String(F.channel_id)===String(c.id)?' class="on"':""}>${esc(c.name)}</button>`).join("")}
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+      <div class="seg" id="a_ch">
+        ${S.channels.filter(c=>c.is_active).map(c=>`<button data-c="${c.id}"${String(F.channel_id)===String(c.id)?' class="on"':""}>${esc(c.name)}</button>`).join("")}
+      </div>
+      <button class="btn" id="a_onoff" title="전체 → ON만 → OFF만 순으로 전환"></button>
     </div>
     <div id="a_filter"></div>
     <div id="a_body" class="muted">불러오는 중</div>`;
@@ -1360,9 +1363,27 @@ async function vAds() {
   $("a_view").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; F.view=b.dataset.v; vAds(); };
   $("a_ch").onclick = (e) => { const b=e.target.closest("button"); if(!b) return; F.channel_id=+b.dataset.c; vAds(); };
   $("a_new").onclick = () => openAdForm(null);
+  $("a_onoff").onclick = () => {
+    const order = ["", "on", "off"];
+    F.onoff = order[(order.indexOf(F.onoff) + 1) % order.length];
+    const st = $("a_st"); if (st) st.value = F.onoff;
+    renderOnoffBtn(); loadAds();
+  };
 
   renderAdFilter();
+  renderOnoffBtn();
   await loadAds();
+}
+
+/* 전체 → ON만 → OFF만 순환 버튼 */
+function renderOnoffBtn() {
+  const b = $("a_onoff"); if (!b) return;
+  const v = S.ads.onoff;
+  b.textContent = v === "on" ? "ON만 보기" : v === "off" ? "OFF만 보기" : "전체 보기";
+  b.style.background   = v === "on" ? "var(--gA)" : v === "off" ? "var(--muted)" : "#fff";
+  b.style.color        = v ? "#fff" : "var(--ink)";
+  b.style.borderColor  = v ? "transparent" : "var(--line)";
+  b.style.fontWeight   = v ? "500" : "400";
 }
 
 function renderAdFilter() {
@@ -1401,13 +1422,13 @@ function renderAdFilter() {
   $("a_to").onchange  = (e) => { F.to  = e.target.value; loadAds(); };
   $("a_rt").onchange  = (e) => { F.rating = e.target.value; loadAds(); };
   $("a_bd").onchange  = (e) => { F.budget = e.target.value; loadAds(); };
-  $("a_st").onchange  = (e) => { F.onoff = e.target.value; loadAds(); };
+  $("a_st").onchange  = (e) => { F.onoff = e.target.value; renderOnoffBtn(); loadAds(); };
   $("a_sort").onchange= (e) => { F.sort = e.target.value; loadAds(); };
   $("a_q").oninput = (e) => { F.q = e.target.value; clearTimeout(window._aq); window._aq = setTimeout(loadAds, 250); };
   $("a_reset").onclick = () => {
     S.ads = { ...S.ads, period:"이번달", rating:"", budget:"", onoff:"", sort:"desc", q:"" };
     [S.ads.from, S.ads.to] = monthRange(0);
-    renderAdFilter(); loadAds();
+    renderAdFilter(); renderOnoffBtn(); loadAds();
   };
 }
 
@@ -1540,8 +1561,9 @@ function listView(rows) {
         </div>
         <div style="min-width:0">
           ${cardTop(x)}
-          <div style="font-weight:500;font-size:14px;margin-bottom:6px">${esc(x.title || "제목 없음")}</div>
-          <p class="sm" style="line-height:1.7;white-space:pre-wrap;color:var(--ink)">${esc(x.body || "본문 없음")}</p>
+          <div style="font-weight:500;font-size:14px;margin-bottom:8px">${esc(x.title || "제목 없음")}</div>
+          <button class="btn" data-bodytg="${x.id}" style="height:28px;padding:0 10px;font-size:12px">본문 보기</button>
+          <p class="sm hide" data-body="${x.id}" style="line-height:1.7;white-space:pre-wrap;color:var(--ink);margin-top:8px">${esc(x.body || "본문 없음")}</p>
         </div>
         <div style="text-align:right">
           <div class="lbl">게시일</div>
@@ -1630,6 +1652,13 @@ function bindAdRows() {
     if (!DEMO && gone?.path) await sb.storage.from(BUCKET).remove([gone.path]);
     await sb.from("ad_creatives").update({ files }).eq("id", b.dataset.fdel);
     loadAds();
+  });
+
+  B.querySelectorAll("button[data-bodytg]").forEach(b => b.onclick = () => {
+    const p = B.querySelector(`p[data-body="${b.dataset.bodytg}"]`);
+    if (!p) return;
+    const hidden = p.classList.toggle("hide");
+    b.textContent = hidden ? "본문 보기" : "본문 숨기기";
   });
 
   B.querySelectorAll("button[data-edit]").forEach(b => b.onclick = async () => {
