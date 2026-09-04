@@ -1863,10 +1863,15 @@ const META_COLS = {
   imp:    ["노출","impressions"],
   reach:  ["도달","reach"],
   result: ["결과","results"],
-  lead:   ["잠재 고객(양식)","잠재 고객","잠재고객","리드","leads","on-facebook leads"],
-  deliv:  ["광고 게재","게재","delivery"],
+  lead:   ["잠재 고객양식","잠재 고객","잠재고객","리드","leads","on-facebook leads"],
+  deliv:  ["게재 상태","광고 게재","게재","delivery"],
   budget: ["광고 세트 예산","광고세트 예산","ad set budget"],
-  btype:  ["광고 세트 예산 유형","budget type"]
+  btype:  ["광고 세트 예산 유형","budget type"],
+  clicks: ["클릭전체","클릭(전체)","clicksall","클릭"],
+  ctr:    ["ctr전체","ctr(전체)","ctrall","ctr"],
+  cpc:    ["cpc링크클릭당비용","cpc","cost per link click"],
+  sstart: ["시작","start"],
+  send:   ["종료","end"]
 };
 
 function findCol(headers, keys) {
@@ -1919,7 +1924,13 @@ function parseMetaAoa(aoa) {
              : C.result >= 0 ? toNum(r[C.result]) : 0,
       adset_budget: C.budget >= 0 ? (toNum(r[C.budget]) || null) : null,
       budget_type: C.btype >= 0 ? String(r[C.btype] ?? "").trim() || null : null,
-      delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null
+      delivery: C.deliv >= 0 ? String(r[C.deliv] ?? "").trim() || null : null,
+      leads:  C.lead   >= 0 ? toNum(r[C.lead]) : 0,
+      clicks: C.clicks >= 0 ? toNum(r[C.clicks]) : 0,
+      ctr:    C.ctr    >= 0 ? (toNum(r[C.ctr]) || null) : null,
+      cpc:    C.cpc    >= 0 ? (toNum(r[C.cpc]) || null) : null,
+      sched_start: C.sstart >= 0 ? toDate(r[C.sstart]) : null,
+      sched_end:   C.send   >= 0 ? (String(r[C.send] ?? "").trim() || null) : null
     });
   });
   if (!rows.length) return null;
@@ -2211,7 +2222,16 @@ async function pushMeta(rows, fileName, sync) {
   stamped.forEach(r => {
     const k = [r.stat_date, r.ad_name, r.adset_name, r.platform, r.placement, r.device].join("\u0001");
     const x = merged.get(k);
-    if (x) { x.spend += r.spend; x.impressions += r.impressions; x.reach += r.reach; x.results += r.results; }
+    if (x) {
+      x.spend += r.spend; x.impressions += r.impressions; x.reach += r.reach; x.results += r.results;
+      x.leads = (x.leads ?? 0) + (r.leads ?? 0);
+      x.clicks = (x.clicks ?? 0) + (r.clicks ?? 0);
+      if (x.ctr == null) x.ctr = r.ctr;
+      if (x.cpc == null) x.cpc = r.cpc;
+      if (!x.sched_start) x.sched_start = r.sched_start;
+      if (!x.sched_end) x.sched_end = r.sched_end;
+      if (!x.delivery) x.delivery = r.delivery;
+    }
     else merged.set(k, { ...r });
   });
   const payload = Array.from(merged.values()).map(r => ({ ...r, import_batch_id: batch?.id ?? null }));
@@ -2379,10 +2399,29 @@ async function saveMeta() {
 }
 
 /* ---- 소재별 성과 ---- */
+/* [키, 표시명, 정렬(l=왼쪽 / r=오른쪽)] */
 const MP_COLS = [
-  ["ad","광고 소재"],["card","연결 카드"],["days","일수"],["budget","일일예산"],["spend","지출"],
-  ["burn","소진율"],["imp","노출"],["res","결과"],["cpl","건당 비용"],["cpm","CPM"],["share","비중"]
+  ["adset","광고 세트","l"],["ad","광고 이름","l"],["deliv","게재여부","r"],["res","결과","r"],
+  ["spend","지출 금액","r"],["cpl","결과당 비용","r"],["sched","게재일정","r"],["lead","잠재고객","r"],
+  ["imp","노출","r"],["clicks","클릭(전체)","r"],["ctr","CTR(전체)","r"],
+  ["cpc","CPC(링크클릭당)","r"],["cpm","CPM","r"],
+  ["budget","일예산","r"],["rundays","게재일수","r"],["share","비중","r"]
 ];
+
+const DELIV_LABEL = { active:"게재중", inactive:"중지", paused:"중지",
+  campaign_paused:"캠페인 중지", adset_paused:"세트 중지",
+  not_delivering:"미게재", completed:"종료", pending_review:"검토중", rejected:"거부됨" };
+
+const isDateStr = (v) => /^\d{4}-\d{2}-\d{2}$/.test(String(v ?? "").trim());
+
+/* 처음 게재된 날부터 오늘(또는 종료일)까지 며칠째인지 */
+function runDaysOf(x) {
+  const start = x.schedStart || Array.from(x.days).sort()[0];
+  if (!start) return null;
+  const end = isDateStr(x.schedEnd) ? x.schedEnd : ymd(new Date());
+  const n = Math.floor((new Date(end + "T00:00:00") - new Date(start + "T00:00:00")) / 86400000) + 1;
+  return n > 0 ? n : 1;
+}
 
 async function metaPerfView() {
   const M = S.meta;
@@ -2391,17 +2430,52 @@ async function metaPerfView() {
   if (M.chFilter && igId && +M.chFilter === igId) return instaPerfView();
   const [dl, cr, ac] = await Promise.all([
     fetchAllRows(() => {
-      let q = sb.from("v_meta_daily").select("*").gte("d", M.from).lte("d", M.to).order("d");
+      let q = sb.from("meta_ad_daily").select("*")
+        .gte("stat_date", M.from).lte("stat_date", M.to).order("stat_date");
       if (M.chFilter) q = q.eq("channel_id", +M.chFilter);
       return q;
     }),
     sb.from("v_meta_creative").select("*"),
     sb.from("ad_creatives").select("id,title,meta_ad_name,rating,is_on")
   ]);
-  const rawDaily = dl.error ? [] : (dl.data ?? []);
-  const daily = rawDaily.filter(r =>
-    Number(r.spend) > 0 || Number(r.impressions) > 0 || Number(r.results) > 0);
+  const rawRows = dl.error ? [] : (dl.data ?? []);
   const cards = ac.error ? [] : (ac.data ?? []);
+
+  /* 일자 × 소재로 합산 (노출위치·기기 분할 행을 하나로) */
+  const dayMap = new Map();
+  rawRows.forEach(r => {
+    const d = r.stat_date, ad = r.ad_name;
+    if (!d || !ad) return;
+    const k = d + "\u0001" + ad;
+    const x = dayMap.get(k) ?? { d, ad_name:ad, adset_name:null, channel_id:r.channel_id,
+      spend:0, impressions:0, reach:0, results:0, leads:0, clicks:0,
+      impFromCtr:0, impGap:0, linkClicks:0, adset_budget:null, delivery:null,
+      sched_start:null, sched_end:null };
+    const sp = Number(r.spend)||0, cl = Number(r.clicks)||0;
+    const ct = Number(r.ctr)||0, cp = Number(r.cpc)||0;
+    x.spend += sp;
+    x.impressions += Number(r.impressions)||0;
+    x.reach += Number(r.reach)||0;
+    x.results += Number(r.results)||0;
+    x.leads += Number(r.leads)||0;
+    x.clicks += cl;
+    if (ct > 0 && cl > 0) x.impFromCtr += cl / (ct/100);
+    else if (!(Number(r.impressions) > 0) && sp > 0) x.impGap += 1;   // 노출 역산 불가 행
+    if (cp > 0 && sp > 0) x.linkClicks += sp / cp;
+    if (r.adset_budget) x.adset_budget = Math.max(x.adset_budget ?? 0, Number(r.adset_budget));
+    if (r.adset_name) x.adset_name = r.adset_name;
+    if (r.delivery) x.delivery = r.delivery;
+    if (r.sched_start) x.sched_start = r.sched_start;
+    if (r.sched_end) x.sched_end = r.sched_end;
+    dayMap.set(k, x);
+  });
+  const daily = Array.from(dayMap.values())
+    .filter(r => r.spend > 0 || r.impressions > 0 || r.results > 0 || r.clicks > 0)
+    .map(r => ({ ...r,
+      cpl: r.results ? r.spend/r.results : null,
+      /* 노출 열이 없는 리포트는 클릭 ÷ CTR 로 역산 */
+      impEff: r.impressions > 0 ? r.impressions : Math.round(r.impFromCtr),
+      impDerived: !(r.impressions > 0) && r.impFromCtr > 0 }));
 
   if (!daily.length) {
     $("c_body").innerHTML = `<div id="mp_filter"></div><div class="card empty">해당 기간${M.chFilter?" · 해당 채널":""}의 광고 실적이 없습니다. 광고 리포트 업로드 탭에서 파일을 올리거나 조건을 넓혀보세요.</div>`;
@@ -2411,25 +2485,50 @@ async function metaPerfView() {
 
   const inRange = new Map();
   daily.forEach(r => {
-    const x = inRange.get(r.ad_name) ?? { ad:r.ad_name, spend:0, imp:0, res:0, budget:null, days:new Set() };
-    x.spend += Number(r.spend); x.imp += Number(r.impressions); x.res += Number(r.results); x.days.add(r.d);
+    const x = inRange.get(r.ad_name) ?? { ad:r.ad_name, adset:"", deliv:"", spend:0, imp:0, res:0,
+      lead:0, clicks:0, impCtr:0, impGap:0, linkClicks:0, budget:null,
+      schedStart:null, schedEnd:null, lastD:"", days:new Set() };
+    x.spend += r.spend; x.imp += r.impressions; x.res += r.results;
+    x.lead += r.leads; x.clicks += r.clicks;
+    x.impCtr += r.impFromCtr; x.impGap += r.impGap; x.linkClicks += r.linkClicks;
+    x.days.add(r.d);
     if (r.adset_budget) x.budget = Math.max(x.budget ?? 0, Number(r.adset_budget));
+    if (r.d >= x.lastD) {
+      x.lastD = r.d;
+      if (r.adset_name) x.adset = r.adset_name;
+      if (r.delivery) x.deliv = r.delivery;
+      if (r.sched_start) x.schedStart = r.sched_start;
+      if (r.sched_end) x.schedEnd = r.sched_end;
+    }
     inRange.set(r.ad_name, x);
   });
-  const T = Array.from(inRange.values()).reduce((a,x)=>({spend:a.spend+x.spend, imp:a.imp+x.imp, res:a.res+x.res}),{spend:0,imp:0,res:0});
+  /* 실측 노출이 없으면 역산 노출을 사용 */
+  const effImp = (x) => x.imp > 0 ? x.imp : Math.round(x.impCtr);
+  const T = Array.from(inRange.values()).reduce((a,x)=>({
+    spend:a.spend+x.spend, imp:a.imp+effImp(x), res:a.res+x.res,
+    gap:a.gap+(x.imp > 0 ? 0 : x.impGap)}),{spend:0,imp:0,res:0,gap:0});
+  const T_derived = Array.from(inRange.values()).some(x => !(x.imp > 0) && x.impCtr > 0);
   const avgCpl = T.res ? T.spend / T.res : null;
 
   let list = Array.from(inRange.values()).map(x => ({ ...x,
     daysN: x.days.size,
+    runDays: runDaysOf(x),
     burn: x.budget && x.days.size ? x.spend/(x.budget*x.days.size)*100 : null,
     cpl: x.res ? x.spend/x.res : null,
-    cpm: x.imp ? x.spend/x.imp*1000 : null,
+    ctr: x.impCtr > 0 ? x.clicks/x.impCtr*100 : (x.imp ? x.clicks/x.imp*100 : null),
+    cpc: x.linkClicks > 0 ? x.spend/x.linkClicks : null,
+    impEff: effImp(x),
+    impDerived: !(x.imp > 0) && x.impCtr > 0,
+    impPartial: !(x.imp > 0) && x.impCtr > 0 && x.impGap > 0,
+    cpm: effImp(x) ? x.spend/effImp(x)*1000 : null,
     share: T.spend ? x.spend/T.spend*100 : null,
     dev: null }));
   list.forEach(x => { if (x.cpl != null && avgCpl) x.dev = (x.cpl - avgCpl)/avgCpl*100; });
 
-  const key = { ad:"ad", days:"daysN", budget:"budget", spend:"spend", burn:"burn",
-    imp:"imp", res:"res", cpl:"cpl", cpm:"cpm", share:"share" }[M.sort.col] ?? "spend";
+  const key = { adset:"adset", ad:"ad", deliv:"deliv", res:"res", spend:"spend", cpl:"cpl",
+    sched:"schedStart", lead:"lead", imp:"impEff", clicks:"clicks", ctr:"ctr", cpc:"cpc",
+    cpm:"cpm", budget:"budget", rundays:"runDays", share:"share",
+    days:"daysN", burn:"burn" }[M.sort.col] ?? "spend";
   list.sort((a,b) => {
     const av = a[key], bv = b[key];
     if (av == null && bv == null) return 0;
@@ -2458,8 +2557,9 @@ async function metaPerfView() {
     <div id="mp_filter"></div>
 
     <div class="grid" style="grid-template-columns:repeat(5,1fr);margin-bottom:12px">
-      ${[["지출",won(T.spend)],["노출",num(T.imp)],["결과(유입)",num(T.res)+"건"],
-         ["건당 비용",avgCpl?won(avgCpl):"-"],["CPM",T.imp?won(T.spend/T.imp*1000):"-"]]
+      ${[["지출",won(T.spend)],[T_derived?"노출 <span class=\"sm\">(역산)</span>":"노출",(T_derived?"~":"")+num(T.imp)],
+         ["결과(유입)",num(T.res)+"건"],["건당 비용",avgCpl?won(avgCpl):"-"],
+         [T_derived?"CPM <span class=\"sm\">(역산)</span>":"CPM",T.imp?(T_derived?"~":"")+won(T.spend/T.imp*1000):"-"]]
         .map(([l,v])=>`<div class="card p16"><div class="lbl">${l}</div><div class="val">${v}</div></div>`).join("")}
     </div>
 
@@ -2473,28 +2573,37 @@ async function metaPerfView() {
         <h2 class="h2">소재별 성과 <span class="sm muted">${num(list.length)}개</span></h2>
         <button class="btn" id="mp_sortrs" style="height:26px;font-size:11px">정렬 초기화</button></div>
       <table><thead><tr>
-        ${MP_COLS.map(([c,l])=>c==="card"
-          ? `<th>${l}</th>`
-          : `<th class="sortable" data-sc="${c}">${l}${arrow(c)}</th>`).join("")}
+        ${MP_COLS.map(([c,l,a])=>`<th class="sortable" data-sc="${c}" style="text-align:${a==="r"?"right":"left"}">${l}${arrow(c)}</th>`).join("")}
       </tr></thead>
       <tbody>${list.map(x=>{
-        const c = cardBy.get(x.ad);
+        const R = 'style="text-align:right"';
         const devTxt = x.dev == null ? "" :
           ` <span class="sm" style="color:${x.dev>0?"var(--gD)":"var(--gA)"}">(${x.dev>0?"+":""}${x.dev.toFixed(0)}%)</span>`;
+        const deliv = x.deliv ? (DELIV_LABEL[x.deliv] ?? x.deliv) : "-";
+        const on = /게재중|active/i.test(x.deliv ?? "");
         return `<tr>
-          <td style="font-weight:500;max-width:260px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
-          <td class="sm">${c?`${esc(c.title??"")} ${"★".repeat(c.rating)}`:`<button class="btn" data-link="${esc(x.ad)}" style="height:24px;padding:0 7px;font-size:11px">연결</button>`}</td>
-          <td class="muted">${x.daysN}일</td>
-          <td class="muted">${x.budget?won(x.budget):"-"}</td>
-          <td style="font-weight:500">${won(x.spend)}</td>
-          <td class="muted">${x.burn!=null?pct(x.burn,0):"-"}</td>
-          <td class="muted">${num(x.imp)}</td>
-          <td>${num(x.res)}</td>
-          <td style="font-weight:500;${x.dev!=null&&x.dev>30?"color:var(--gD)":x.cpl!=null&&x.dev!=null&&x.dev<=0?"color:var(--gA)":""}">${x.cpl?won(x.cpl):"-"}${devTxt}</td>
-          <td class="muted">${x.cpm?won(x.cpm):"-"}</td>
-          <td class="muted">${x.share!=null?pct(x.share,0):"-"}</td></tr>`;}).join("")}
+          <td class="sm muted" style="max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(x.adset || "-")}</td>
+          <td style="font-weight:500;max-width:240px;overflow:hidden;text-overflow:ellipsis">${esc(x.ad)}</td>
+          <td style="text-align:right;color:${on?"var(--gA)":"var(--muted)"}">${esc(deliv)}</td>
+          <td ${R}>${num(x.res)}</td>
+          <td style="text-align:right;font-weight:500">${won(x.spend)}</td>
+          <td style="text-align:right;font-weight:500;${x.dev!=null&&x.dev>30?"color:var(--gD)":x.cpl!=null&&x.dev!=null&&x.dev<=0?"color:var(--gA)":""}">${x.cpl?won(x.cpl):"-"}${devTxt}</td>
+          <td class="sm muted" ${R}>${x.schedStart?esc(x.schedStart):"-"} ~ ${x.schedEnd?esc(x.schedEnd):"-"}</td>
+          <td ${R}>${num(x.lead)}</td>
+          <td class="muted" style="text-align:right"${x.impDerived?` title="${x.impPartial?"클릭 0인 일자가 있어 노출이 실제보다 적게, CPM은 높게 잡힙니다":"클릭 ÷ CTR 로 역산한 값입니다"}"`:""}>${x.impEff?(x.impDerived?"~":"")+num(x.impEff):"-"}${x.impPartial?`<span style="color:var(--gD)">*</span>`:""}</td>
+          <td class="muted" ${R}>${num(x.clicks)}</td>
+          <td class="muted" ${R}>${x.ctr!=null?pct(x.ctr,2):"-"}</td>
+          <td class="muted" ${R}>${x.cpc?won(x.cpc):"-"}</td>
+          <td class="muted" ${R}>${x.cpm?(x.impDerived?"~":"")+won(x.cpm):"-"}</td>
+          <td class="muted" ${R}>${x.budget?won(x.budget):"-"}</td>
+          <td class="muted" ${R}>${x.runDays!=null?x.runDays+"일차":"-"}</td>
+          <td class="muted" ${R}>${x.share!=null?pct(x.share,0):"-"}</td></tr>`;}).join("")}
       </tbody></table>
-      <p class="sm muted p16" style="padding-top:8px">건당 비용 괄호는 기간 전체 평균 ${avgCpl?won(avgCpl):"-"} 대비 등락입니다. 낮을수록 좋습니다.</p></div>
+      <p class="sm muted p16" style="padding-top:8px;line-height:1.8">
+        건당 비용 괄호는 기간 전체 평균 ${avgCpl?won(avgCpl):"-"} 대비 등락입니다. 낮을수록 좋습니다.
+        ${T_derived?`<br><b>~</b> 표시는 리포트에 노출 열이 없어 <b>클릭 ÷ CTR</b> 로 역산한 값입니다.
+        <span style="color:var(--gD)">*</span> 는 클릭이 0인 일자가 있어 노출이 적게·CPM이 높게 잡힐 수 있는 소재입니다.
+        정확한 값이 필요하면 메타 광고 보고서에 <b>노출</b> 열을 추가해 다시 올려주세요.`:""}</p></div>
 
     <div class="card" style="margin-bottom:12px">
       <div class="p16" style="padding-bottom:8px;display:flex;justify-content:space-between;align-items:baseline">
@@ -2514,7 +2623,7 @@ async function metaPerfView() {
           <div class="scroll"><table><thead><tr><th>광고 소재</th><th>지출</th><th>노출</th><th>도달</th><th>결과</th><th>건당 비용</th></tr></thead>
           <tbody>${rows.sort((a,b)=>Number(b.spend)-Number(a.spend)).map(r=>`<tr>
             <td style="max-width:300px;overflow:hidden;text-overflow:ellipsis">${esc(r.ad_name)}</td>
-            <td>${won(r.spend)}</td><td class="muted">${num(r.impressions)}</td>
+            <td>${won(r.spend)}</td><td class="muted">${r.impEff?(r.impDerived?"~":"")+num(r.impEff):"-"}</td>
             <td class="muted">${num(r.reach)}</td><td>${num(r.results)}</td>
             <td>${r.cpl?won(r.cpl):"-"}</td></tr>`).join("")}</tbody></table></div>
         </details>`;}).join("")}
